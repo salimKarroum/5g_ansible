@@ -58,6 +58,8 @@
       n300:    values-n300-n78-20MHz.yaml
       n320:    values-n320.yaml
       rfsim:   values-rfsim.yaml
+      beamarmor: values-beamarmor.yaml
+
 
 # Build full path with path_join (prevents spaces/slash issues)
 - name: Build absolute values_file path
