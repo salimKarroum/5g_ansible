@@ -1,13 +1,8 @@
 ---
-- name: Start Gaussian Noise Emmission from {{ node }} on frequency {{ freq }} with -g {{ gain }} for {{ time }} seconds
+- name: Start Gaussian Noise Emmission from {{ node }} on frequency {{ freq }} with -g {{ gain }} for 5 minutes
   shell: >
-    ssh -o BatchMode=yes
-        -o StrictHostKeyChecking=no
-        -o UserKnownHostsFile=/dev/null
-        -o ConnectTimeout=10
-        root@{{ node }}
-        'timeout {{ time }} uhd_siggen --gaussian --freq="{{ freq }}" -g "{{ gain }}" -s "{{ noise_bandwidth }}"'
+    ssh root@{{ node }}
+    'timeout {{ time }} uhd_siggen --gaussian --freq="{{ freq }}" -g "{{ gain }}" -s "{{ noise_bandwidth }}"'
   delegate_to: faraday.inria.fr
-  register: noise_gen
   ignore_errors: true
-  no_log: false
+  no_log: true
