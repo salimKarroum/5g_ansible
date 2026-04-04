@@ -2,13 +2,12 @@
 
 ![setup](images/setup.png)
 
-This repository provides a fully automated [Ansible](https://www.ansible.com/) framework for deploying and monitoring a sliced 5G network using Kubernetes. It is intended to be run from the [SLICES platform Webshell](https://post-5g-web.slices-ri.eu/), assuming you can obtain:
+This repository provides a fully automated [Ansible](https://www.ansible.com/) framework for deploying and monitoring a private sliced 5G network using Kubernetes. It is intended to be run from the [SLICES platform Webshell](https://post-5g-web.slices-ri.eu/).
 
-- A valid [SLICES account](https://doc.slices-ri.eu/).
-- A valid reservation for the machines `sopnode-f1`, `sopnode-f2`, and `sopnode-f3` (from [Duckburg](https://duckburg.net.cit.tum.de/)).
-- A valid [R2Lab account and reservation](https://r2lab.inria.fr/tuto-010-registration.md).
+To run it, you need a valid [SLICES account](https://doc.slices-ri.eu/). If you select a scenario with real 5G hardware (RUs and UEs) you also need a valid [R2Lab account](https://r2lab.inria.fr/tuto-010-registration.md). 
 
-> First version of this script was developed in June 2025 by Ziyad Mabrouk as part of his internship at [Inria Sophia Antipolis](https://www.inria.fr/en/inria-centre-universite-cote-azur), under the supervision of: Thierry Turletti, Chadi Barakat, and Walid Dabbous.
+
+> NOTA: First version of this script was developed in June 2025 by Ziyad Mabrouk as part of his internship at [Inria Sophia Antipolis](https://www.inria.fr/en/inria-centre-universite-cote-azur), under the supervision of: Thierry Turletti, Chadi Barakat, and Walid Dabbous.
 
 ---
 
@@ -22,20 +21,31 @@ cd 5g_ansible
 ./deploy.sh
 ```
 
-This will:
-- Allocate and reset the reserved machines using `pos`.
-- Install all required packages.
-- Set up a Kubernetes cluster across the nodes.
-- Deploy the **Open5GS Core** (with slice support via [sopnode/open5gs-k8s](https://github.com/sopnode/open5gs-k8s)).
-- Deploy the **Monarch monitoring framework** ([Ziyad-Mabrouk/5g-monarch](https://github.com/Ziyad-Mabrouk/5g-monarch), forked from [niloysh/5g-monarch](https://github.com/niloysh/5g-monarch)).
-- Clean up and configure R2Lab resources: RRU, UEs, Fit Nodes.
-- Deploy the **OAI RAN stack** ([sopnode/oai5g-rru](https://github.com/sopnode/oai5g-rru)).
+This script helps you interactively configure a 5G deployment scenario by allowing you to choose the type of core network, the type of RAN, monitoring functions (partly based on Monarch), and an optional test scenario once the deployment is completed. It also allows you to select the servers on which the 5G pods will run, or to choose the default ones. This will generate a reservation for server(s) such as  `sopnode-f1`, `sopnode-f2`, `sopnode-f3` (from [Duckburg](https://duckburg.net.cit.tum.de/)).
 
-> **Note:** This will only prepare the UEs, but will not connect them. That is done via one of the test scenarios below. However, you can uncomment the last section of the `playbooks/deploy.yml` file so that all the UEs in the `[qhats]` group of the `inventory/hosts.ini` will be connected to the 5G network.
+
+This script will first attempt to reserve the servers and possibly the 5G RAN nodes you selected for your 5G deployment. Then it will :
+
+- Allocate and reset the reserved machines using `pos`.
+- Install all required packages on the server(s).
+- Set up a Kubernetes cluster across the nodes.
+- Deploy a 5G Core Network (CN). Currently 3 options are possible : Free5GC, OAI or Open5GS. 
+- Optionally deploy the *Monarch monitoring framework* in case Open5GS CN is selected. 
+- Deploy a 5G Radio Access network (RAN). Currently, 3 options are possible : OAI, srsRAN and UERANSIM. OAI and srsRAN supports both real 5G network devices in the R2lab testbed and emulation mode while UERANSIM is a pure 5G RAN emulation system. In case the R2lab platform is selected, a specific R2lab playbook will run in parallel to configure the R2lab resources: RRU, UEs and FIT R2lab nodes.
+- Optionally deploy a test scenario at the end of the deployment, see more details below.
+
+
+This repo **5g_ansible** [sopnode/5g_ansible](https://github.com/sopnode/5g_ansible) leverages the following repos:
+ 
+- **Open5GS Core** : [sopnode/open5gs-k8s](https://github.com/sopnode/open5gs-k8s), forked from [niloysh/open5gs-k8s](https://github.com/niloysh/open5gs-k8s)
+- **OAI OpenAirInterface Core and RAN** : [sopnode/oai5g-rru](https://github.com/sopnode/oai5g-rru) and [charts](https://gitlab.eurecom.fr/turletti/charts) that leverage [oai/cn5g/oai-cn5g-fed](https://gitlab.eurecom.fr/oai/cn5g/oai-cn5g-fed) and [openairinterface5G](https://gitlab.eurecom.fr/oai/openairinterface5g)
+- **Free5gc Core** : [sopnode/free5gc-helm](https://github.com/sopnode/free5gc-helm), forked from [free5gc/free5gc-helm](https://github.com/free5gc/free5gc-helm)
+- **srsran-helm** : [turletti/srsan-helm](https://github.com/turletti/srsran-helm), forked from [Ziyad-Mabrouk/srsran-helm](https://github.com/Ziyad-Mabrouk/srsran-helm)
+- **Monarch monitoring framework** : [Ziyad-Mabrouk/5g-monarch](https://github.com/Ziyad-Mabrouk/5g-monarch), forked from [niloysh/5g-monarch](https://github.com/niloysh/5g-monarch).
 
 ---
 
-## Available Scenarios
+## Available Test Scenarios
 The `deploy.sh` can be used to configure and deploy a scenario (iperf or interference). If such a scenario option is selected, the `deploy.sh`  script will execute, once the 5G CORE+CN deployement is ready, another script `run_scenario.sh` that can also be run manually, provided that the inventory is already configured for the target scenario.
 
 #### Command Overview
@@ -65,7 +75,7 @@ In the current version, two scenarios are available
 ./run_scenario.sh [-d] [--no-setup]
 ```
 - Connect all UEs defined in `[qhats]` host group.
-- Each UE runs downlink then uplink iperf3 test *separately*.
+- Each UE runs downlink then uplink iperf3 test in a sequential way.
 > **Note:** This is the baseline scenario used to for basic connectivity testing and benchmarking.
 
 
@@ -85,7 +95,7 @@ In the current version, two scenarios are available
 
 ## Inventory Configuration
 
-The deployment is driven by `inventory/hosts.ini`, where you define:
+The deployment is driven by `inventory/default/hosts.ini`, automatically configured by the *deploy.sh* script:
 
 - Core, RAN, and Monitoring nodes
 - Which node acts as Kubernetes master/worker
@@ -233,21 +243,22 @@ ues:
   qhat23:
     imsi_suffix: "0000000014"
     slice: slice1
-  UE18:
-    imsi_suffix: "0000001121"  # used for OAI RFSIM UE
+  uesim01: # used for RFSIM
+    imsi_suffix: "0000001121"  
     slice: slice1
-  UE19:
-    imsi_suffix: "0000001122"  # used for OAI RFSIM UE2
+  uesim02: # used for RFSIM
+    imsi_suffix: "0000001122"
     slice: slice2
-  UE20:
-    imsi_suffix: "0000001123"  # used for OAI RFSIM UE3
+  uesim03: # used for RFSIM
+    imsi_suffix: "0000001123"
     slice: slice1
+
 ```
 
 
 ---
 
-## Monitoring Dashboard Access [TBD]
+## Monitoring Dashboard Access
 
 After deployment, instructions will be printed to your terminal with the SSH command required to access the **Monarch monitoring dashboard**.
 
