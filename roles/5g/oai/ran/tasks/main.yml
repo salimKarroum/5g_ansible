@@ -1,5 +1,5 @@
 ---
-- name: RESTART_OAI_RAN
+- name: OAI_RAN
   ansible.builtin.meta: noop
 
 - name: Launch OAI gNB pod
@@ -14,8 +14,8 @@
   block:
     - name: Wait for gNB synchronization string
       shell: |
-        GNB_POD_NAME=$(kubectl get pods --namespace open5gs -l "app.kubernetes.io/name=oai-gnb,app.kubernetes.io/instance=oai-gnb" -o jsonpath="{.items[0].metadata.name}")
-        kubectl logs --namespace open5gs $GNB_POD_NAME | grep '\[NR_MAC\] I Frame.Slot'
+        GNB_POD_NAME=$(kubectl get pods --namespace {{ core }} -l "app.kubernetes.io/name=oai-gnb,app.kubernetes.io/instance=oai-gnb" -o jsonpath="{.items[0].metadata.name}")
+        kubectl logs --namespace {{ core }} $GNB_POD_NAME | grep '\[NR_MAC\] I Frame.Slot'
       register: gnb_log_check
       until: gnb_log_check.rc == 0
       retries: 6
@@ -40,8 +40,8 @@
 
         - name: Re-check gNB logs for sync
           shell: |
-            GNB_POD_NAME=$(kubectl get pods --namespace open5gs -l "app.kubernetes.io/name=oai-gnb,app.kubernetes.io/instance=oai-gnb" -o jsonpath="{.items[0].metadata.name}")
-            kubectl logs --namespace open5gs $GNB_POD_NAME | grep '\[NR_MAC\] I Frame.Slot'
+            GNB_POD_NAME=$(kubectl get pods --namespace {{ core }} -l "app.kubernetes.io/name=oai-gnb,app.kubernetes.io/instance=oai-gnb" -o jsonpath="{.items[0].metadata.name}")
+            kubectl logs --namespace {{ core }} $GNB_POD_NAME | grep '\[NR_MAC\] I Frame.Slot'
           register: gnb_log_check_retry
           until: gnb_log_check_retry.rc == 0
           retries: 6
@@ -52,13 +52,15 @@
   when: rru == "n300" or rru == "n320"
 
 - name: Launch OAI NR-UE pods (conditional)
-  ansible.builtin.command: "{{ demo_oai_script }} {{ item }}"
+  ansible.builtin.command: "{{ demo_oai_script }} {{ ue_cmd }}"
   args:
     chdir: "{{ repo_dest }}"
-  loop:
-    - start-nr-ue
-    - start-nr-ue2
-    - start-nr-ue3
+  loop: "{{ range(1, ue_count + 1) | list }}"
+  loop_control:
+    loop_var: ue_index
+  vars:
+    ue_cmd: >-
+      {{ 'start-nr-ue' if ue_index == 1 else 'start-nr-ue' ~ ue_index }}
   register: nr_ue_scripts
   changed_when: "'condition met' in nr_ue_scripts.stdout"
   when: rru == "rfsim"
