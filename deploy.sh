@@ -478,21 +478,25 @@ interference_setup() {
 
     # ========== Interference Test Setup ==========
     run_interference_test=false
-    # If the user selected the Interference Test scenario, ask for additional parameters
     if [[ "$run_scenario" == true && "$scenario" == "Iperf R2lab scenario with interference" ]]; then
 	run_interference_test=true
 	USRPs=("n300" "n320" "b210" "b205mini")
-	# Remove the RU used for RAN from the list of available USRPs for interference if it is a USRP
-	for i in "${!USRPs[@]}"; do
-	    if [[ "${USRPs[i]}" == "$R2LAB_RU" ]]; then
-		unset 'USRPs[i]'
+
+	# Remove the RU used for RAN from the list of available USRPs
+	NEW_USRPs=()
+	for u in "${USRPs[@]}"; do
+	    if [[ "$u" != "$R2LAB_RU" && -n "$u" ]]; then
+		NEW_USRPs+=("$u")
 	    fi
 	done
+	USRPs=("${NEW_USRPs[@]}")
+
 	echo ""
 	echo "Select the USRP to use for interference generation:"
 	for i in "${!USRPs[@]}"; do
 	    echo "$((i+1))) ${USRPs[$i]}"
 	done
+
 	read -rp "Enter your choice: " choice
 	if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#USRPs[@]} )); then
 	    noise_usrp="${USRPs[$((choice-1))]}"
@@ -501,6 +505,7 @@ interference_setup() {
 	    echo "❌ Invalid choice"
 	    exit 1
 	fi
+
 	VIZ_USRPs=("b210" "b205mini")
 	# Remove the interference USRP from the list of available USRPs and ask user to select one for spectrum visualization (if wanted)
 	for i in "${!VIZ_USRPs[@]}"; do
@@ -511,11 +516,14 @@ interference_setup() {
 	echo ""
 	read -rp "Do you want to setup spectrum visualization using a second USRP? [y/N]: " viz_choice
 	if [[ "$viz_choice" =~ ^[Yy]$ ]]; then
-	    echo ""
+	    # Clean up VIZ_USRPs array to remove possible ""
+	    VIZ_USRPs=($(printf "%s\n" "${VIZ_USRPs[@]}" | grep -v '^$'))
+            echo ""
 	    echo "Select the USRP to use for spectrum visualization:"
-	    for i in "${!VIZ_USRPs[@]}"; do
-		echo "$((i+1))) ${VIZ_USRPs[$i]}"
+	    for idx in "${!VIZ_USRPs[@]}"; do
+		echo "$((idx+1))) ${VIZ_USRPs[$idx]}"
 	    done
+
 	    read -rp "Enter your choice: " choice
 	    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#VIZ_USRPs[@]} )); then
 		viz_usrp="${VIZ_USRPs[$((choice-1))]}"
@@ -525,6 +533,7 @@ interference_setup() {
 		exit 1
 	    fi
 	fi
+
 	# Set MODE for interference test to TDD if OAI RAN is used, FDD if srsRAN RAN is used
 	if [[ "$ran" == "oai" ]]; then
 	    echo "Setting MODE to TDD for interference test"
@@ -789,13 +798,10 @@ EOF
 	else
 	    # noise is n300/n320 (no fit mapping)
 	    if [[ -n "$viz_info" ]]; then
-		# we need two slots, put the OTHER fit first and the viz fit second ## TO REMOVE
 		read -r v_name v_num v_usrp <<<"$viz_info"
 		if [[ "$v_name" == "fit02" ]]; then
-		    #append_fit "fit08" 8 b205 ## TO REMOVE
 		    append_fit "$v_name" "$v_num" "$v_usrp"
 		else
-		    #append_fit "fit02" 2 b210 ## TO REMOVE
 		    append_fit "$v_name" "$v_num" "$v_usrp"
 		fi
 	    else

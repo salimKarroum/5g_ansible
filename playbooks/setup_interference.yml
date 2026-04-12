@@ -1,49 +1,79 @@
 ---
-#
-# --- Visualization setup ---
-#
-
-- name: Setup first fit node for spectrum visualization (uhd_fft)
-  hosts: faraday
-
-  pre_tasks:
-
-    - name: Set fit_node safely if group exists
-      set_fact:
-        fit_node: "{{ groups['fit_nodes'] | first }}"
-      when: groups['fit_nodes'] | default([]) | length > 0
-
-    - name: Debug selected fit_node
-      debug:
-        msg: "Using FIT node: {{ fit_node }}"
-      when: fit_node is defined
-
-  roles:
-    - role: scenarios/interference/setup
-      when: fit_node is defined
-    - role: scenarios/interference/watch
-      when: fit_node is defined
 
 #
 # --- Noise generation setup ---
 #
-- name: Setup second fit node on R2Lab for noise genaration
+- name: Set up fit node for noise generation if any
   hosts: faraday
-  vars:
-    fit_node: "{{ groups['fit_nodes'][1] }}"
-    fit_number: "{{ hostvars[fit_node].fit_number }}"
-    fit_usrp: "{{ hostvars[fit_node].fit_usrp }}"
+
+  pre_tasks:
+    - name: Set fit_node for noise
+      set_fact:
+        fit_node: "{{ groups['fit_nodes'][0] }}"
+      when:
+        - groups['fit_nodes'] | length > 0
+        - hostvars.get(groups['faraday'][0], {}).get('interference_usrp') == 'fit'
+
+    - name: Set fit details for noise
+      set_fact:
+        fit_number: "{{ hostvars[fit_node].fit_number }}"
+        fit_usrp: "{{ hostvars[fit_node].fit_usrp }}"
+      when: fit_node is defined
+
   roles:
     - role: scenarios/interference/setup
-      when: hostvars[groups['faraday'][0]].interference_usrp == 'fit'
+      when:
+        - fit_node is defined
+        - fit_number is defined
+        - fit_usrp is defined
 
-- name: Setup interference USRP on R2Lab
+- name: Set up interference USRP on R2Lab
   hosts: faraday
   vars:
-    rru: "{{ hostvars[groups['faraday'][0]].interference_usrp }}"
+    rru: "{{ hostvars.get(groups['faraday'][0], {}).get('interference_usrp') }}"
   roles:
     - role: r2lab/rru
       when: hostvars[groups['faraday'][0]].interference_usrp in ['n300', 'n320']
+
+#
+# --- Visualization setup ---
+#
+
+- name: Set up fit node for spectrum visualization (uhd_fft)
+  hosts: faraday
+
+  pre_tasks:
+
+    - name: Set fit_index
+      set_fact:
+        fit_index: >-
+          {{
+            1 if (
+              hostvars.get(groups['faraday'][0], {}).get('interference_usrp') == 'fit'
+              and groups.get('fit_nodes', []) | length > 1
+            ) else 0
+          }}
+      when: groups['fit_nodes'] | length > 0
+
+    - name: Set fit_node
+      set_fact:
+        fit_node: "{{ groups['fit_nodes'][fit_index | int] }}"
+      when:
+        - fit_index is defined
+        - groups['fit_nodes'] | length > 0
+
+    - name: Set fit details
+      set_fact:
+        fit_number: "{{ hostvars[fit_node].fit_number }}"
+        fit_usrp: "{{ hostvars[fit_node].fit_usrp }}"
+      when: fit_node is defined
+
+  roles:
+    - role: scenarios/interference/setup
+      when:
+        - fit_node is defined
+        - fit_number is defined
+        - fit_usrp is defined
 
 #
 # --- UE setup (first UE on the list) ---
@@ -58,6 +88,4 @@
         current_ue: "{{ groups['qhats'][0] }}"
         fiveg_profile: default
         ignore_task_errors: true
-        target_server: "{{ core_node }}"
         target_server: "{{ hostvars[groups['core_node'][0]].ip }}"
-
