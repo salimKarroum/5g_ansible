@@ -2,6 +2,9 @@
 - name: OAI_RAN
   ansible.builtin.meta: noop
 
+- name: Undeploy OAI RAN components
+  ansible.builtin.command: "{{ demo_oai_script }} stop-ran"
+
 - name: Launch OAI gNB pod
   ansible.builtin.command: "{{ demo_oai_script }} start-gnb"
   args:

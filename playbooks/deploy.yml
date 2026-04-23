@@ -175,6 +175,8 @@
     - role: setup/k8s/benetel_specific_tuning_f3
       when: fhi72 and f3_ran
 
+
+
 - name: Deploy 5G-Monarch for monitoring
   hosts: monitor_node
   tasks:
@@ -183,27 +185,16 @@
         name: monarch/deploy
       vars:
         branch: srsRAN_metrics
-      when: monitoring_enabled and ran == 'srsRAN'
+      when: monitoring_enabled and ran == 'srsRAN' and monarch
 
     - name: Deploy Monarch for OAI
       include_role:
         name: monarch/deploy
       vars:
         branch: with_data_persistance_for_sopnodes
-      when: monitoring_enabled and ran == 'oai'
+      when: monitoring_enabled and ran == 'oai' and monarch
 
-############################################################################
-# Move this block where you want to restart with start-at-task=RESTART_HERE"
-#
-- hosts: localhost,core_node,ran_node
-  gather_facts: false
-  tasks:
-    - name: RESTART_HERE
-      ansible.builtin.meta: noop
 
-    - import_tasks: ../tasks/reload_booleans.yml
-#
-############################################################################
 
 - name: Add NoSchedule taint on Monitor node (core/ran pods should not run on monitor_node)
   hosts: core_node
@@ -211,8 +202,13 @@
   roles:
     - role: setup/k8s/add_taint
       vars:
-        target_node: "{{ monitor_node_name }}"
-      when: monitoring_enabled and core_node_name != ran_node_name and core_node_name != monitor_node_name | default('')
+        target_node: "{{ monitor_node_name | default('') }}"
+      when:
+        - monitoring_enabled | bool
+        - monarch | bool
+        - (monitor_node_name | default('')) | length > 0
+        - core_node_name != ran_node_name
+        - core_node_name != (monitor_node_name | default(''))
 
 - name: SRIOV setup
   hosts: ran_node
@@ -235,6 +231,9 @@
   roles:
     - role: setup/gre_tunnel
       when: bridge_enabled
+
+
+
 
 - name: Deploy Open5GS CN
   hosts: core_node
@@ -262,19 +261,6 @@
     - role: 5g/free5gc/deploy
       when: core == 'free5gc'
 
-############################################################################
-# Move this block where you want to restart with start-at-task=RESTART_HERE"
-#
-- hosts: localhost,core_node,ran_node
-  gather_facts: false
-  tasks:
-    - name: RESTART_HERE
-      ansible.builtin.meta: noop
-
-    - import_tasks: ../tasks/reload_booleans.yml
-#
-############################################################################
-
 - name: OAI Setup
   hosts: core_node,ran_node
   pre_tasks:
@@ -297,83 +283,132 @@
     - role: 5g/oai/core
       when: core == 'oai'
 
-- name: Deploy monitoring folder and run slice-aware script on core node (Provisoire)
-  hosts: "{{ (groups['monitor_node'] | default([]) | length > 0) | ternary('monitor_node', 'core_node') }}"
-  become: true
-  gather_facts: false
-  # when: monitoring_enabled | default(false)
-
-  tasks:
-
-    - name: Sync monitoring directory from control node
-      ansible.posix.synchronize:
-        src: "{{ lookup('env','HOME') }}/5g_ansible/monitoring/"
-        dest: /root/monitoring/
-        recursive: yes
-        rsync_path: "sudo rsync"
-      delegate_to: localhost
-      become: false
-
-    # - name: Run slice-aware script (Provisoire)
-    #   ansible.builtin.shell: CORE_NS="{{ core }}" ./5gsliceaware.sh
-    #   args:
-    #     chdir: /root/monitoring/scripts
-      
-    # - name: Start kopf controller
-    #   ansible.builtin.command: kopf run /path/to/controller.py
-    #   environment:
-    #     CORE_NS: "{{ core }}"
-
-- name: Deploy SliceAware Mechanisms
-  hosts: "{{ (groups['monitor_node'] | default([]) | length > 0) | ternary('monitor_node', 'core_node') }}"
-  gather_facts: false
-  roles:
-    - role: monarch/sliceawareness
-      vars:
-        core_ns: "{{ core }}"
-      # when: monitoring_enabled
-
-# - name: Setup sniffers on SMFs and AMF
-#   # hosts: "{{ (groups['monitor_node'] | default([]) | length > 0) | ternary('monitor_node', 'core_node') }}"
-#   hosts: core_node
+# - name: Copy monitoring folder
+#   hosts: "{{ (groups['monitor_node'] | default([]) | length > 0) | ternary('monitor_node', 'core_node') }}"
+#   become: true
 #   gather_facts: false
-#   roles:
-#     - role: monarch/sniffers/smf
-#       vars:
-#         core_ns: "{{ core }}"
-#       # when: monitoring_enabled
-#     - role: monarch/sniffers/amf
-#       vars:
-#         core_ns: "{{ core }}"
-#       # when: monitoring_enabled
+#   when: monitoring_enabled
+
+#   tasks:
+
+#     - name: Sync monitoring directory from control node
+#       ansible.posix.synchronize:
+#         src: "{{ lookup('env','HOME') }}/5g_ansible/monitoring/"
+#         dest: /root/monitoring/
+#         recursive: yes
+#         rsync_path: "sudo rsync"
+#       delegate_to: localhost
+#       become: false
 
 - name: Setup sniffers on SMFs and AMF (Improved)
   hosts: core_node
   gather_facts: false
   roles:
     - role: monarch/sniffers/amf
+      when: monitoring_enabled
       vars:
         # redis_host: redis
         redis_host: "redis.{{ core }}.svc.cluster.local"
     - role: monarch/sniffers/smf
+      when: monitoring_enabled
       vars:
         # redis_host: redis
         redis_host: "redis.{{ core }}.svc.cluster.local"
 
+- name: Deploy SliceAware Mechanisms
+  hosts: "{{ (groups['monitor_node'] | default([]) | length > 0) | ternary('monitor_node', 'core_node') }}"
+  gather_facts: false
+
+  vars:
+    core_ns: "{{ core }}"
+
+  pre_tasks:
+    - name: Render Redis manifest for cleanup
+      ansible.builtin.template:
+        src: ../roles/monarch/sliceawareness/templates/redis.yaml.j2
+        dest: /tmp/redis.yaml
+        mode: "0644"
+
+    - name: Delete Redis resources if present
+      ansible.builtin.command: >
+        kubectl -n {{ core }} delete -f /tmp/redis.yaml --ignore-not-found=true
+      register: redis_cleanup
+      changed_when: "'deleted' in redis_cleanup.stdout or 'deleted' in redis_cleanup.stderr"
+      failed_when: false
+
+    - name: Render UE Mapper manifest for cleanup
+      ansible.builtin.template:
+        src: ../roles/monarch/sliceawareness/templates/ue-mapper.yaml.j2
+        dest: /tmp/ue-mapper.yaml
+        mode: "0644"
+
+    - name: Delete UE Mapper resources if present
+      ansible.builtin.command: >
+        kubectl -n {{ core }} delete -f /tmp/ue-mapper.yaml --ignore-not-found=true
+      register: ue_mapper_cleanup
+      changed_when: "'deleted' in ue_mapper_cleanup.stdout or 'deleted' in ue_mapper_cleanup.stderr"
+      failed_when: false
+
+  roles:
+    - role: monarch/sliceawareness
+      when: monitoring_enabled
+      vars:
+        core_ns: "{{ core }}"
+
+############################################################################
+# Move this block where you want to restart with start-at-task=RESTART_HERE"
+#
+- hosts: localhost,core_node,ran_node
+  gather_facts: false
+  tasks:
+    - name: RESTART_HERE
+      ansible.builtin.meta: noop
+
+    - import_tasks: ../tasks/reload_booleans.yml
+#
+############################################################################
+
 - name: Deploy Kopf Controller and eBPF Probes
   hosts: "{{ (groups['monitor_node'] | default([]) | length > 0) | ternary('monitor_node', 'core_node') }}"
   gather_facts: false
-  roles:
-    - role: monarch/controller
-      vars:
-        core_ns: "{{ core }}"
-        kopf_image: "r2labuser/kopf-controller:2026w10"
-        probe_image: "r2labuser/ebpf-latency-probe:2026"
-        exporter_port: "9100"
-        exporter_path: "/latency"
-        ue_mapper_limit: "2000"
-        dry_run: "0"
-      # when: monitoring_enabled
+
+  vars:
+    core_ns: "{{ core }}"
+    # kopf_image: "r2labuser/kopf-controller:2026w10"
+    # probe_image: "r2labuser/ebpf-latency-probe:2026"
+    kopf_image: "r2labuser/kopf-controller:2026e2e"
+    probe_image: "r2labuser/ebpf-latency-probe:2026e2eLatest"
+    image_pull_policy: "Always"
+    exporter_port: "9100"
+    exporter_path: "/latency"
+    ue_mapper_limit: "2000"
+    dry_run: "0"
+    probe_mode: "both"
+    gnb_latency_mode: "BOTH"
+    upf_latency_mode: "BOTH"
+    match_debug: "0"
+
+  tasks:
+    - name: Deploy Kopf Controller and eBPF Probes
+      when: monitoring_enabled | bool
+      block:
+        - name: Render controller manifest for cleanup
+          ansible.builtin.template:
+            src: ../roles/monarch/controller/templates/kopf-controller.yaml.j2
+            dest: /tmp/kopf-controller.yaml
+            mode: "0644"
+
+        - name: Delete existing controller resources if present
+          ansible.builtin.command: >
+            kubectl delete -f /tmp/kopf-controller.yaml --ignore-not-found=true
+          register: cleanup_result
+          changed_when: "'deleted' in cleanup_result.stdout"
+          failed_when: false
+
+        - name: Run monarch controller role
+          ansible.builtin.include_role:
+            name: monarch/controller
+
 
 
 - name: Deploy OAI RAN
@@ -413,14 +448,21 @@
     - role: 5g/ueransim/deploy
       when: ran == 'ueransim'
 
+
+
 - name: Remove NoSchedule taint on Monitor node
   hosts: core_node
   become: true
   roles:
     - role: setup/k8s/remove_taint
       vars:
-        target_node: "{{ monitor_node_name }}"
-      when: monitoring_enabled and core_node_name != ran_node_name
+        target_node: "{{ monitor_node_name | default('') }}"
+      when:
+        - monitoring_enabled | bool
+        - monarch | bool
+        - (monitor_node_name | default('')) | length > 0
+        - core_node_name != ran_node_name
+        - core_node_name != (monitor_node_name | default(''))
 
 - name: 5G-Monarch Final Operations
   hosts: monitor_node
@@ -430,9 +472,9 @@
         name: monarch/monitoring
       vars:
         set_gnb_monitoring: false
-      when: monitoring_enabled and ran == 'oai'
+      when: monitoring_enabled and ran == 'oai' and monarch
 
     - name: Launch monitoring for srsRAN
       include_role:
         name: monarch/monitoring
-      when: monitoring_enabled and ran == 'srsRAN'
+      when: monitoring_enabled and ran == 'srsRAN' and monarch

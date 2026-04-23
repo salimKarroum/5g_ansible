@@ -272,33 +272,42 @@ collect_user_inputs() {
       exit 1
     fi
 
-    # Select Monitoring Node (only if not OAI core with UERANSIM RAN and if user wants it)
+    # Select Monitoring
+    # Ask whenever RAN is not UERANSIM.
+    # For open5gs: ask for a monitoring node and enable monarch.
+    # For all other cores: enable monitoring without monarch and without asking for a node.
     monitoring_enabled=false
+    monarch=false
     monitor_node=""
-    if [[ "$core" != "oai" && "$ran" != "ueransim" ]]; then
+    if [[ "$ran" != "ueransim" ]]; then
       echo ""
-      read -rp "Do you want to deploy a monitoring node? [y/N]: " mon_choice
+      read -rp "Do you want to deploy monitoring? [y/N]: " mon_choice
       if [[ "$mon_choice" =~ ^[Yy]$ ]]; then
-        # Select Monitoring Node
-        # Make sopnode-f1 the default if the user just presses enter
         monitoring_enabled=true
-        echo ""
-        echo "Select the node to deploy Monitoring on (default: ${DEFAULT_MONITOR_NODE}):"
-        echo "1) sopnode-f1"
-        echo "2) sopnode-f2"
-        echo "3) sopnode-f3"
-        echo "4) sopnode-w3"
-        read -rp "Enter choice [1-4]: " monitor_node_choice
-        if [[ -z "${monitor_node_choice}" ]]; then
-          monitor_node=${DEFAULT_MONITOR_NODE}
+
+        if [[ "$core" == "open5gs" ]]; then
+          monarch=true
+          echo ""
+          echo "Select the node to deploy Monitoring on (default: ${DEFAULT_MONITOR_NODE}):"
+          echo "1) sopnode-f1"
+          echo "2) sopnode-f2"
+          echo "3) sopnode-f3"
+          echo "4) sopnode-w3"
+          read -rp "Enter choice [1-4]: " monitor_node_choice
+          if [[ -z "${monitor_node_choice}" ]]; then
+            monitor_node=${DEFAULT_MONITOR_NODE}
+          else
+            case "${monitor_node_choice}" in
+              1) monitor_node="sopnode-f1" ;;
+              2) monitor_node="sopnode-f2" ;;
+              3) monitor_node="sopnode-f3" ;;
+              4) monitor_node="sopnode-w3" ;;
+              *) echo "❌ Invalid Monitoring node"; exit 1 ;;
+            esac
+          fi
         else
-          case "${monitor_node_choice}" in
-            1) monitor_node="sopnode-f1" ;;
-            2) monitor_node="sopnode-f2" ;;
-            3) monitor_node="sopnode-f3" ;;
-            4) monitor_node="sopnode-w3" ;;
-            *) echo "❌ Invalid Monitoring node"; exit 1 ;;
-          esac
+          monarch=false
+          # No node prompt here: monitoring is enabled, but monarch is not used.
         fi
       fi
     fi
@@ -412,6 +421,7 @@ core_node="$core_node"
 ran_node="$ran_node"
 platform="$platform"
 monitoring_enabled="$monitoring_enabled"
+monarch="$monarch"
 monitor_node="$monitor_node"
 EOF
 }
@@ -490,19 +500,14 @@ optional_scenarios() {
         fi
 
         echo "iperf server node: ${iperf_server_node}"
-        case "${iperf_server_node}" in
-          "${core_node}"|"${ran_node}"|"${monitor_node}")
-            if [[ -z "${iperf_server_node}" ]]; then
-              echo "No iperf server node selected; skipping extra inventory host."
-            else
-              echo "iperf server already part of inventory, no need to add it."
-            fi
-            ;;
-          *)
-            DISTINCT_IPERF_SERVER=true
-            echo "iperf server ${iperf_server_node} will be added in the inventory."
-            ;;
-        esac
+        if [[ "${iperf_server_node}" == "${core_node}" || \
+              "${iperf_server_node}" == "${ran_node}" || \
+              ( -n "${monitor_node}" && "${iperf_server_node}" == "${monitor_node}" ) ]]; then
+          echo "iperf server already part of inventory, no need to add it."
+        else
+          DISTINCT_IPERF_SERVER=true
+          echo "iperf server ${iperf_server_node} will be added in the inventory."
+        fi
       fi
     fi
     cat >> "$DEPLOYMENT_ENV" <<EOF
@@ -631,7 +636,17 @@ print_summary() {
     echo "========== SUMMARY =========="
     echo "Core:        $core on ${core_node}"
     echo "RAN:         $ran on ${ran_node}"
-    [[ "$monitoring_enabled" == true ]] && echo "Monitoring:  enabled on $monitor_node" || echo "Monitoring:  disabled"
+    if [[ "$monitoring_enabled" == true ]]; then
+      if [[ -n "$monitor_node" ]]; then
+        echo "Monitoring:  enabled on $monitor_node"
+      else
+        echo "Monitoring:  enabled (automatic mode)"
+      fi
+      echo "Monarch:     $monarch"
+    else
+      echo "Monitoring:  disabled"
+      echo "Monarch:     false"
+    fi
     echo "Platform:    $platform"
     [[ "$platform" == "r2lab" ]] && echo "RU:          $R2LAB_RU" && echo "UEs:         ${R2LAB_UES[*]}"
     if [[ "$run_interference_test" == true ]]; then
@@ -762,7 +777,7 @@ ${ran_node} ansible_user=root nic_interface=$(get_nic "${ran_node}") ip=172.28.2
 [monitor_node]
 EOF
 
-    if [[ "${monitoring_enabled}" == true ]]; then
+    if [[ "${monitoring_enabled}" == true && -n "${monitor_node}" ]]; then
       cat >> "$INVENTORY" <<EOF
 ${monitor_node} ansible_user=root nic_interface=$(get_nic "${monitor_node}") ip=172.28.2.$(get_ip_suffix "${monitor_node}") storage=$(get_storage "${monitor_node}")
 EOF
@@ -892,7 +907,7 @@ EOF
 core_node
 ran_node
 EOF
-    if [[ "$monitoring_enabled" == true ]]; then
+    if [[ "$monitoring_enabled" == true && -n "${monitor_node}" ]]; then
       echo "monitor_node" >> "$INVENTORY"
     fi
     if [[ "${DISTINCT_IPERF_SERVER}" == true ]]; then
@@ -904,7 +919,7 @@ EOF
 [k8s_workers:children]
 ran_node
 EOF
-    if [[ "${monitoring_enabled}" == true ]]; then
+    if [[ "${monitoring_enabled}" == true && -n "${monitor_node}" ]]; then
       echo "monitor_node" >> "$INVENTORY"
     fi
 
@@ -921,7 +936,7 @@ core_node_name="${core_node}"
 ran_node_name="${ran_node}"
 EOF
 
-    if [[ "$monitoring_enabled" == true ]]; then
+    if [[ "$monitoring_enabled" == true && -n "${monitor_node}" ]]; then
       cat >> "$INVENTORY" <<EOF
 monitor_node_name="${monitor_node}"
 EOF
@@ -950,6 +965,7 @@ f3_ran=$( [[ "${ran_node}" == "sopnode-f3" ]] && echo true || echo false )
 # bridge_enabled is true if OVS bridge required between core_node and ran_node
 bridge_enabled=$( [[ "${fhi72}" == "false" && "${ran_node}" != "${core_node}" ]] && echo true || echo false )
 monitoring_enabled=${monitoring_enabled}
+monarch=${monarch}
 EOF
 
 }
@@ -970,7 +986,7 @@ reserve_nodes() {
     echo ""
     echo "Reserving nodes on SLICES..."
     nodes_to_reserve=("${core_node}" "${ran_node}")
-    if [[ "$monitoring_enabled" == true ]]; then
+    if [[ "$monitoring_enabled" == true && -n "${monitor_node}" ]]; then
       nodes_to_reserve+=("${monitor_node}")
     fi
     if [[ "${DISTINCT_IPERF_SERVER}" == true ]]; then
@@ -1178,7 +1194,7 @@ show_access_info() {
     # ========== End of Script ==========
     # Note: The user is responsible for deleting the reservations after use if needed.
     # Show the commands to run to connect to the Grafana dashboard if monitoring is enabled.
-    if [[ "$monitoring_enabled" == true ]]; then
+    if [[ "$monitoring_enabled" == true && -n "${monitor_node}" ]]; then
       echo ""
       echo "To access the Grafana Dashboard, follow these chained SSH port forwarding steps: "
       echo "Step 1: On your local machine, SSH into Duckburg with port forwarding: "
