@@ -1,6 +1,11 @@
 ---
-- name: RESTART_OAI_CORE
+- name: START_OAI_CORE
   ansible.builtin.meta: noop
+
+- name: Remove previous OAI CN deployment if any
+  ansible.builtin.command: "{{ demo_oai_script }} stop-cn"
+  args:
+    chdir: "{{ repo_dest }}"
 
 - name: Run demo-oai.sh start-cn to launch OAI CN pods
   ansible.builtin.command: "{{ demo_oai_script }} start-cn"
