@@ -15,3 +15,10 @@ latency_mode: "BOTH" # CORE | RAN | BOTH
 dry_run: "0"
 match_debug: "0"
 probe_mode: "gnb" # gnb | upf | both
+packet_pairing: "1"
+packet_pairer_image: "r2labuser/packet-pairer:2026"
+packet_pairer_name: "packet-pairer"
+packet_pairer_service_name: "packet-pairer-service"
+packet_pairer_metrics_port: "9200"
+packet_pairer_metrics_path: "/metrics"
+packet_pairer_port: "9201"

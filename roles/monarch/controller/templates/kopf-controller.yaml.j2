@@ -27,6 +27,14 @@ rules:
     resources: ["events"]
     verbs: ["create", "patch", "update"]
 
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -77,12 +85,28 @@ spec:
               value: "{{ match_debug | default('0') }}"
             - name: PROBE_MODE
               value: "{{ probe_mode | default('both') }}"
+            - name: PACKET_PAIRING
+              value: "{{ packet_pairing | default('0') }}"
             - name: DRY_RUN
               value: "{{ dry_run | default('0') }}"
             - name: GNB_LATENCY_MODE
               value: "{{ gnb_latency_mode | default('E2E') }}"
             - name: UPF_LATENCY_MODE
               value: "{{ upf_latency_mode | default('BOTH') }}"
+            - name: PACKET_PAIRER_NAME
+              value: "{{ packet_pairer_name | default('ebpf-latency-probe-pairer') }}"
+            - name: PACKET_PAIRER_SERVICE_NAME
+              value: "{{ packet_pairer_service_name | default(packet_pairer_name | default('ebpf-latency-probe-pairer')) }}"
+            - name: PACKET_PAIRER_METRICS_PORT
+              value: "{{ packet_pairer_metrics_port | default('9200') }}"
+            - name: PACKET_PAIRER_METRICS_PATH
+              value: "{{ packet_pairer_metrics_path | default('/metrics') }}"
+            - name: PACKET_PAIRER_PORT
+              value: "{{ packet_pairer_port | default('9201') }}"
+{% if packet_pairer_image is defined and packet_pairer_image | length > 0 %}
+            - name: PACKET_PAIRER_IMAGE
+              value: "{{ packet_pairer_image }}"
+{% endif %}
 {% if ue_mapper_url is defined and ue_mapper_url | length > 0 %}
             - name: UE_MAPPER_URL
               value: "{{ ue_mapper_url }}"
