@@ -40,8 +40,10 @@ LABEL_RULES = [
     ("29_load_ramp_levels",             "load_ramp"),
 
     # --- Transport impairments ---
-    # no_netem_reference = baseline step within v03/v28 experiments (before netem injection)
+    # Reference steps must come BEFORE their parent scenario patterns (first match wins).
     ("no_netem_reference",              "clean_traffic"),
+    ("no_loss_reference",               "clean_traffic"),
+    ("no_bandwidth_limit_reference",    "clean_traffic"),
     ("28_controlled_delay_levels",      "controlled_delay"),
     ("v03_controlled_delay",            "controlled_delay"),
     ("v07_controlled_packet_loss",      "tunnel_packet_loss"),
