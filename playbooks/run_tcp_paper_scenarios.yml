@@ -216,6 +216,15 @@
     target_server: "{{ paper_target_server_ip }}"
     ignore_task_errors: true
     paper_scenarios:
+      - name: "00_reference_baseline"
+        title: "Universal reference baseline - 3 UEs near, p2 streams, no anomaly"
+        pause_after: false
+        steps:
+          - name: "baseline_3ues_p2"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 2
+            directions: ["ul", "dl"]
+
       - name: "01_clean_near_baseline"
         title: "Clean near-UE baseline"
         pause_after: true
@@ -575,6 +584,176 @@
               qhat01: "probe-traffic"
               qhat02: "probe-traffic"
               qhat03: "probe-traffic"
+
+      - name: "24_upf_stress_levels"
+        title: "UPF CPU stress at light (2 workers) and heavy (8 workers) intensity levels"
+        pause_after: true
+        steps:
+          - name: "all_qhat_upf_stress_light_p2"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 2
+            directions: ["ul", "dl"]
+            stress: true
+            stress_target: "upf"
+            stress_workers: 2
+            stress_namespace: "{{ paper_stress_namespace }}"
+            stress_pod_regex: "{{ paper_stress_pod_regex }}"
+            stress_container_regex: "{{ paper_stress_container_regex }}"
+            stress_note: "Light UPF stress: 2 workers. Low intensity for comparison with scenario 22 (4 workers)."
+            ue_roles:
+              qhat01: "probe-traffic"
+              qhat02: "probe-traffic"
+              qhat03: "probe-traffic"
+          - name: "all_qhat_upf_stress_heavy_p2"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 2
+            directions: ["ul", "dl"]
+            stress: true
+            stress_target: "upf"
+            stress_workers: 8
+            stress_namespace: "{{ paper_stress_namespace }}"
+            stress_pod_regex: "{{ paper_stress_pod_regex }}"
+            stress_container_regex: "{{ paper_stress_container_regex }}"
+            stress_note: "Heavy UPF stress: 8 workers. High intensity pushing UPF CPU toward saturation."
+            ue_roles:
+              qhat01: "probe-traffic"
+              qhat02: "probe-traffic"
+              qhat03: "probe-traffic"
+
+      - name: "25_server_stress_levels"
+        title: "Iperf server CPU stress at light (4 workers) and heavy (16 workers) intensity levels"
+        pause_after: false
+        steps:
+          - name: "all_qhat_server_stress_light_p2"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 2
+            directions: ["ul", "dl"]
+            stress: true
+            stress_target: "server"
+            stress_workers: 4
+            stress_note: "Light server stress: 4 workers. Low intensity for comparison with scenario 23 (8 workers)."
+            ue_roles:
+              qhat01: "probe-traffic"
+              qhat02: "probe-traffic"
+              qhat03: "probe-traffic"
+          - name: "all_qhat_server_stress_heavy_p2"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 2
+            directions: ["ul", "dl"]
+            stress: true
+            stress_target: "server"
+            stress_workers: 16
+            stress_note: "Heavy server stress: 16 workers. High intensity pushing server CPU toward saturation."
+            ue_roles:
+              qhat01: "probe-traffic"
+              qhat02: "probe-traffic"
+              qhat03: "probe-traffic"
+
+      - name: "26_interference_gain_levels"
+        title: "Radio interference at low (40), medium (55), and high (70) gain levels on uplink"
+        pause_after: false
+        steps:
+          - name: "near_trio_ul_interference_gain40_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            interference: true
+            interference_direction: "ul"
+            traffic_type: "tcp"
+            interference_node: "fit02"
+            interference_fit_number: 2
+            interference_fit_usrp: "b210"
+            interference_gain: 40
+            interference_focus_ue: "qhat03"
+            interference_note: "Low gain (40): mild interference, near detection threshold."
+          - name: "near_trio_ul_interference_gain55_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            interference: true
+            interference_direction: "ul"
+            traffic_type: "tcp"
+            interference_node: "fit02"
+            interference_fit_number: 2
+            interference_fit_usrp: "b210"
+            interference_gain: 55
+            interference_focus_ue: "qhat03"
+            interference_note: "Medium gain (55): moderate interference."
+          - name: "near_trio_ul_interference_gain70_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            interference: true
+            interference_direction: "ul"
+            traffic_type: "tcp"
+            interference_node: "fit02"
+            interference_fit_number: 2
+            interference_fit_usrp: "b210"
+            interference_gain: 70
+            interference_focus_ue: "qhat03"
+            interference_note: "High gain (70): controlled degradation point, same as scenario 07."
+
+      - name: "27_multi_ue_contention_levels"
+        title: "Multi-UE TCP contention at light (2 UEs p4), medium (3 UEs p4), and heavy (3 UEs p8) load"
+        pause_after: false
+        steps:
+          - name: "2ues_near_light_p4"
+            ues: ["qhat01", "qhat03"]
+            parallel_streams: 4
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near-light"
+              qhat03: "near-light"
+          - name: "3ues_near_medium_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near-medium"
+              qhat02: "near-medium"
+              qhat03: "near-medium"
+          - name: "3ues_near_heavy_p8"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 8
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near-heavy"
+              qhat02: "near-heavy"
+              qhat03: "near-heavy"
+
+      - name: "29_load_ramp_levels"
+        title: "TCP load ramp at light (p1), medium (p2), heavy (p4), and extreme (p8) stream levels"
+        pause_after: false
+        steps:
+          - name: "3ues_near_load_p1"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 1
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat02: "near"
+              qhat03: "near"
+          - name: "3ues_near_load_p2"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 2
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat02: "near"
+              qhat03: "near"
+          - name: "3ues_near_load_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat02: "near"
+              qhat03: "near"
+          - name: "3ues_near_load_p8"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 8
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat02: "near"
+              qhat03: "near"
 
   tasks:
     - name: Load active 5G profile

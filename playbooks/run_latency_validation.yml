@@ -74,9 +74,11 @@
         validation_ping_upf_pod_selectors: "{{ validation_ping_upf_pod_selectors | default(['nf=upf', 'app=open5gs,nf=upf', 'app.kubernetes.io/name=open5gs-upf']) }}"
         validation_ping_upf_pod_regex: "{{ validation_ping_upf_pod_regex | default(validation_netem_upf_pod_regex | default(validation_netem_target_pod_regex | default(''))) }}"
         validation_netem_delay_ms: "{{ validation_netem_delay_ms | default(200) }}"
+        validation_netem_loss_pct: "{{ validation_netem_loss_pct | default(2) }}"
+        validation_server_bandwidth_limit_mbit: "{{ validation_server_bandwidth_limit_mbit | default(10) }}"
         validation_netem_method: "{{ validation_netem_method | default('pod_ifb_redirect') }}"
         validation_netem_ifb: "{{ validation_netem_ifb | default('ifb5gval') }}"
-        validation_netem_host: "{{ validation_netem_host | default(groups['core_node'][0]) }}"
+        validation_netem_host: "{{ validation_netem_host | default(groups['core_node'][0] if (groups['core_node'] | default([]) | length > 0) else '') }}"
         validation_netem_namespace: "{{ validation_netem_namespace | default(validation_core_namespace | default(core | default('open5gs'))) }}"
         validation_netem_pod_iface: "{{ validation_netem_pod_iface | default('n3') }}"
         validation_netem_pod_name_regex: "{{ validation_netem_pod_name_regex | default('upf') }}"
@@ -89,7 +91,7 @@
         validation_netem_cleanup_ifb: "{{ validation_netem_cleanup_ifb | default(false) }}"
         validation_tc_pass_filter_prio: "{{ validation_tc_pass_filter_prio | default(49153) }}"
         validation_tc_pass_install_deps: "{{ validation_tc_pass_install_deps | default(true) }}"
-        validation_netem_ran_host: "{{ validation_netem_ran_host | default(groups['ran_node'][0] if (groups['ran_node'] | default([]) | length > 0) else groups['core_node'][0]) }}"
+        validation_netem_ran_host: "{{ validation_netem_ran_host | default(groups['ran_node'][0] if (groups['ran_node'] | default([]) | length > 0) else (groups['core_node'][0] if (groups['core_node'] | default([]) | length > 0) else '')) }}"
         validation_netem_ran_namespace: "{{ validation_netem_ran_namespace | default(validation_ran_namespace | default(core | default('open5gs'))) }}"
         validation_netem_ran_pod_iface: "{{ validation_netem_ran_pod_iface | default(validation_netem_pod_iface | default('n3')) }}"
         validation_required_ues: "{{ validation_required_ues | default(validation_default_required_ues) }}"
@@ -689,6 +691,8 @@
     validation_ping_upf_container_regex: "{{ hostvars['localhost'].validation_ping_upf_container_regex }}"
     validation_ping_upf_pod_regex: "{{ hostvars['localhost'].validation_ping_upf_pod_regex }}"
     validation_netem_delay_ms: "{{ hostvars['localhost'].validation_netem_delay_ms | int }}"
+    validation_netem_loss_pct: "{{ hostvars['localhost'].validation_netem_loss_pct | float }}"
+    validation_server_bandwidth_limit_mbit: "{{ hostvars['localhost'].validation_server_bandwidth_limit_mbit | float }}"
     validation_netem_method: "{{ hostvars['localhost'].validation_netem_method }}"
     validation_netem_ifb: "{{ hostvars['localhost'].validation_netem_ifb }}"
     validation_netem_host: "{{ hostvars['localhost'].validation_netem_host }}"
@@ -856,6 +860,222 @@
             tc_pass_filter_prio: "{{ validation_tc_pass_filter_prio }}"
             tc_pass_install_deps: "{{ validation_tc_pass_install_deps }}"
             directions: ["ul", "dl"]
+
+      - name: "v07_controlled_packet_loss"
+        title: "Controlled {{ validation_netem_loss_pct }}% pod-level IFB packet-loss validation"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "qhat01_p1_no_loss_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_upf_netem_loss_{{ validation_netem_loss_pct }}pct"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_loss_pct: "{{ validation_netem_loss_pct }}"
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_ran_netem_loss_{{ validation_netem_loss_pct }}pct"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_loss_pct: "{{ validation_netem_loss_pct }}"
+            netem_target_role: "ran"
+            netem_host: "{{ validation_netem_ran_host }}"
+            netem_namespace: "{{ validation_netem_ran_namespace }}"
+            netem_pod_iface: "{{ validation_netem_ran_pod_iface }}"
+            netem_pod_selectors:
+              - "app=oai-gnb"
+              - "app.kubernetes.io/name=oai-gnb"
+              - "app.kubernetes.io/name=oai-du"
+              - "app.kubernetes.io/name=oai-cu-up"
+              - "app.kubernetes.io/name=oai-cuup"
+            netem_pod_name_regex: "gnb|du|cu-up|cuup"
+            netem_pod_container_regex: "gnb|oai-gnb|nr-gnb|du|cu-up|cuup"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
+      - name: "v08_server_bandwidth_limit"
+        title: "Controlled {{ validation_server_bandwidth_limit_mbit }} Mbit/s iperf-server path bandwidth limit"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "qhat01_p1_no_server_limit_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_server_ifb_rate_{{ validation_server_bandwidth_limit_mbit }}mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: "{{ validation_server_bandwidth_limit_mbit }}"
+            netem_method: "ifb_redirect"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
+      - name: "28_controlled_delay_levels"
+        title: "Controlled GTP-U tunnel delay at 50 ms, 100 ms, and 200 ms levels"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "no_netem_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_50ms"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_delay_ms: 50
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_100ms"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_delay_ms: 100
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_200ms"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_delay_ms: 200
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
+      - name: "30_packet_loss_levels"
+        title: "Controlled GTP-U tunnel packet loss at 1%, 5%, 15%, and 30% levels"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "no_loss_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_loss_1pct"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_loss_pct: 1
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_loss_5pct"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_loss_pct: 5
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_loss_15pct"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_loss_pct: 15
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_loss_30pct"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate }}"
+            netem_loss_pct: 30
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
+      - name: "31_bandwidth_limit_levels"
+        title: "Controlled iperf-server path bandwidth limit at 50, 20, 10, and 2 Mbit/s levels"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "no_bandwidth_limit_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_server_ifb_rate_50mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 50
+            netem_method: "ifb_redirect"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_server_ifb_rate_20mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 20
+            netem_method: "ifb_redirect"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_server_ifb_rate_10mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 10
+            netem_method: "ifb_redirect"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_server_ifb_rate_2mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 2
+            netem_method: "ifb_redirect"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
   tasks:
     - name: Load active 5G profile
       ansible.builtin.include_vars:
