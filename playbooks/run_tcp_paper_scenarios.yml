@@ -225,6 +225,15 @@
             parallel_streams: 2
             directions: ["ul", "dl"]
 
+      - name: "32_saturation_baseline"
+        title: "High-load saturation baseline - 3 near UEs p8 streams to maximize throughput for anomaly sensitivity"
+        pause_after: false
+        steps:
+          - name: "saturation_3ues_p8"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 8
+            directions: ["ul", "dl"]
+
       - name: "01_clean_near_baseline"
         title: "Clean near-UE baseline"
         pause_after: true
