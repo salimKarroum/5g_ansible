@@ -935,27 +935,27 @@
           - name: "no_netem_reference"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
           - name: "qhat01_p1_netem_delay_50ms"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_delay_ms: 50
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
           - name: "qhat01_p1_netem_delay_100ms"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_delay_ms: 100
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
           - name: "qhat01_p1_netem_delay_200ms"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_delay_ms: 200
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
@@ -968,13 +968,13 @@
           - name: "no_loss_reference"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
           - name: "qhat01_p1_netem_loss_1pct"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_loss_pct: 1
             netem_target_role: "upf"
             netem_host: "{{ validation_netem_host }}"
@@ -989,7 +989,7 @@
           - name: "qhat01_p1_netem_loss_5pct"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_loss_pct: 5
             netem_target_role: "upf"
             netem_host: "{{ validation_netem_host }}"
@@ -1004,7 +1004,7 @@
           - name: "qhat01_p1_netem_loss_15pct"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_loss_pct: 15
             netem_target_role: "upf"
             netem_host: "{{ validation_netem_host }}"
@@ -1019,7 +1019,7 @@
           - name: "qhat01_p1_netem_loss_30pct"
             ues: ["qhat01"]
             parallel_streams: 1
-            bitrate: "{{ validation_tcp_bitrate }}"
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_loss_pct: 30
             netem_target_role: "upf"
             netem_host: "{{ validation_netem_host }}"
