@@ -1076,6 +1076,24 @@
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
 
+      - name: "33_streaming_baseline"
+        title: "Streaming baseline - 1 UE at fixed 50 Mbps DL simulating 4K HDR streaming"
+        include_in_default_all: false
+        pause_after: false
+        steps:
+          - name: "qhat01_streaming_50mbit_dl"
+            ues: ["qhat01"]
+            parallel_streams: 4
+            bitrate: "50M"
+            pcap_capture_seconds: 30
+            directions: ["dl"]
+          - name: "qhat01_streaming_50mbit_ul_dl"
+            ues: ["qhat01"]
+            parallel_streams: 4
+            bitrate: "50M"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
   tasks:
     - name: Load active 5G profile
       ansible.builtin.include_vars:

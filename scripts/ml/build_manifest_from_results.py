@@ -56,6 +56,7 @@ LABEL_RULES = [
     ("01_clean_near_baseline",          "clean_traffic"),
     ("20_decomp_baseline",              "clean_traffic"),
     ("32_saturation_baseline",          "clean_traffic"),
+    ("33_streaming_baseline",           "clean_traffic"),
 ]
 
 # Scenarios to skip entirely (no useful label)
