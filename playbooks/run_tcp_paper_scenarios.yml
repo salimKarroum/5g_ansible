@@ -225,6 +225,84 @@
             parallel_streams: 2
             directions: ["ul", "dl"]
 
+      - name: "33_streaming_baseline"
+        title: "4K streaming baseline - 1 near UE, UL+DL, 20/35/50 Mbps"
+        pause_after: false
+        steps:
+          - name: "streaming_20m_qhat01"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "20M"
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+          - name: "streaming_35m_qhat01"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "35M"
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+          - name: "streaming_50m_qhat01"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "50M"
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+
+      - name: "35_clean_traffic_baseline"
+        title: "Clean traffic baseline - near UEs at fixed 20 Mbps, 1/2/3 UE configurations"
+        pause_after: false
+        steps:
+          - name: "clean_1ue_p4"
+            ues: ["qhat01"]
+            parallel_streams: 4
+            bitrate: "20M"
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+          - name: "clean_2ues_p4"
+            ues: ["qhat01", "qhat03"]
+            parallel_streams: 4
+            bitrate: "20M"
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat03: "near"
+          - name: "clean_3ues_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            bitrate: "20M"
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat02: "near"
+              qhat03: "near"
+
+      - name: "36_load_ramp_1ue"
+        title: "Load ramp single near UE - p1 to p8 to test single-UE saturation"
+        pause_after: false
+        steps:
+          - name: "near_qhat01_p1"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+          - name: "near_qhat01_p4"
+            ues: ["qhat01"]
+            parallel_streams: 4
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+          - name: "near_qhat01_p8"
+            ues: ["qhat01"]
+            parallel_streams: 8
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+
       - name: "32_saturation_baseline"
         title: "High-load saturation baseline - 3 near UEs p8 streams to maximize throughput for anomaly sensitivity"
         pause_after: false
@@ -726,6 +804,37 @@
               qhat01: "near-heavy"
               qhat02: "near-heavy"
               qhat03: "near-heavy"
+
+      - name: "34_far_ue_radio_levels"
+        title: "Far UE radio degradation at light (p1), medium (p4), and heavy (p8) load - qhat02 physically far only"
+        pause_after: false
+        steps:
+          - name: "far_qhat02_solo_p1"
+            ues: ["qhat02"]
+            parallel_streams: 1
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat02: "far-radio"
+          - name: "far_qhat02_solo_p4"
+            ues: ["qhat02"]
+            parallel_streams: 4
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat02: "far-radio"
+          - name: "far_qhat02_solo_p8"
+            ues: ["qhat02"]
+            parallel_streams: 8
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat02: "far-radio"
+          - name: "far_qhat02_with_near_load_p4"
+            ues: ["qhat01", "qhat02", "qhat03"]
+            parallel_streams: 4
+            directions: ["ul", "dl"]
+            ue_roles:
+              qhat01: "near"
+              qhat02: "far-radio"
+              qhat03: "near"
 
       - name: "29_load_ramp_levels"
         title: "TCP load ramp at light (p1), medium (p2), heavy (p4), and extreme (p8) stream levels"
