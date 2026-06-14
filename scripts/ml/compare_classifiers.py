@@ -253,25 +253,60 @@ def main():
 
     observable_idx = [i for i, n in enumerate(feature_names) if not is_metadata(n)]
     nan_rates = compute_nan_rates(rows, n_features)
-    clean_idx = [i for i in observable_idx if nan_rates[i] <= args.nan_threshold]
-    print(f"  Observable + low-NaN: {len(clean_idx)} features")
+
+    # Always include tcp_evict / tcp_no_match regardless of NaN rate
+    FORCED_PATTERNS = ("tcp_evict", "tcp_no_match")
+
+    def is_forced_feat(name):
+        return any(p in name for p in FORCED_PATTERNS)
+
+    clean_idx = sorted(set(
+        [i for i in observable_idx if nan_rates[i] <= args.nan_threshold] +
+        [i for i in observable_idx if is_forced_feat(feature_names[i])]
+    ))
+    print(f"  Observable + low-NaN + forced: {len(clean_idx)} features")
 
     X_clean, y, runs = build_matrix(rows, clean_idx)
     fnames_clean = [feature_names[i] for i in clean_idx]
     labels_sorted = sorted(set(y))
 
-    # Rank by importance using RF
+    # Add second/first half ratio features (temporal trend — detects load_ramp ramp-up)
+    ratio_names, ratio_cols = [], []
+    name_to_idx = {n: i for i, n in enumerate(fnames_clean)}
+    for i, name in enumerate(fnames_clean):
+        if '_second_half_mean' in name:
+            base = name.replace('_second_half_mean', '_first_half_mean')
+            if base in name_to_idx:
+                j = name_to_idx[base]
+                denom = np.where(np.abs(X_clean[:, j]) > 1e-3, X_clean[:, j], np.nan)
+                ratio_col = X_clean[:, i] / denom
+                ratio_names.append(name.replace('_second_half_mean', '_half_ratio'))
+                ratio_cols.append(ratio_col)
+
+    if ratio_cols:
+        X_clean = np.hstack([X_clean, np.column_stack(ratio_cols)])
+        fnames_clean = fnames_clean + ratio_names
+        print(f"  Added {len(ratio_names)} temporal ratio features")
+
+    # Rank by importance using RF (on extended feature set)
     print("\nRanking features by importance ...")
     ranked = feature_importance_global(X_clean, y, fnames_clean, make_rf())
 
     results = []
 
     for top_n in [40, 60]:
-        top_names = [name for name, _ in ranked[:top_n]]
-        top_idx = [feature_names.index(n) for n in top_names]
-        X_top, y_top, runs_top = build_matrix(rows, top_idx)
+        top_names_ranked = [name for name, _ in ranked[:top_n]]
+        # Always add forced tcp_evict features not already in ranking
+        forced = [f for f in fnames_clean
+                  if is_forced_feat(f) and f not in top_names_ranked]
+        top_names = top_names_ranked + forced
 
-        print(f"\n--- top-{top_n} features ---")
+        top_idx = [fnames_clean.index(n) for n in top_names]
+        X_top = X_clean[:, top_idx]
+        y_top, runs_top = y, runs
+
+        label = f" (+{len(forced)} forced tcp_evict)" if forced else ""
+        print(f"\n--- top-{top_n} features{label} ---")
 
         # 1. Random Forest
         y_true, y_pred = leave_one_run_out(X_top, y_top, runs_top, make_rf)
@@ -312,7 +347,7 @@ def main():
         results.append((f"ENS   top-{top_n}", acc, mf1))
 
         if args.analyze_errors and top_n == 40:
-            analyze_errors(X_top, y_top, runs_top, fnames_clean, top_names)
+            analyze_errors(X_top, y_top, runs_top, fnames_clean, top_names_ranked)
 
     # Summary table
     print(f"\n{'='*65}")
