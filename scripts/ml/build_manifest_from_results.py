@@ -34,10 +34,8 @@ LABEL_RULES = [
     ("25_server_stress_levels",         "server_stress"),
 
     # --- Load / contention ---
-    ("03_tcp_load_ramp",                "load_ramp"),
     ("04_cross_slice_contention",       "multi_ue_contention"),
     ("27_multi_ue_contention_levels",   "multi_ue_contention"),
-    ("29_load_ramp_levels",             "load_ramp"),
 
     # --- Transport impairments ---
     # Reference steps must come BEFORE their parent scenario patterns (first match wins).
@@ -51,31 +49,51 @@ LABEL_RULES = [
     ("30_packet_loss_levels",           "tunnel_packet_loss"),
     ("31_bandwidth_limit_levels",       "tunnel_bandwidth"),
 
+    # --- Far UE radio levels (pure far-UE steps only, no near_reference mixed in) ---
+    ("34_far_ue_radio_levels",          "far_ue_poor_radio"),
+
     # --- Baseline (no anomaly) ---
     ("00_reference_baseline",           "clean_traffic"),
     ("01_clean_near_baseline",          "clean_traffic"),
     ("20_decomp_baseline",              "clean_traffic"),
-    ("32_saturation_baseline",          "clean_traffic"),
     ("33_streaming_baseline",           "clean_traffic"),
+    ("35_clean_traffic_baseline",       "clean_traffic"),
+    ("36_load_ramp_1ue",               "load_ramp"),
 ]
 
-# Scenarios to skip entirely (no useful label)
+# Scenarios/steps to skip entirely (checked BEFORE label rules)
 SKIP_PATTERNS = [
     "02_near_vs_far_radio_condition",
+    "03_tcp_load_ramp",             # remplacé par 36_load_ramp_1ue (pur, 1 UE)
+    "04_cross_slice_contention",    # qhat02 far dans contention → radio contaminée
     "05_far_ue_stress",
     "06_mixed_ul_dl",
     "12_physical_near_far",
     "13_far_light_under",
+    "29_load_ramp_levels",          # remplacé par 36_load_ramp_1ue (pur, 1 UE)
+    "32_saturation_baseline",       # config identique à load_ramp, label ambigu
+    "far_qhat02_with_near_load",    # step 34 mixte : far UE + near load = contaminé
+    "near_reference_qhat01_qhat03", # step 21 référence near : clean_traffic mal labelisé
+    "near_far_together",            # step 21 mixte : near + far = contaminé
+    # clean_traffic : source unique = 33_streaming_baseline uniquement
+    "no_netem_reference",           # step référence dans scénarios controlled_delay
+    "no_loss_reference",            # step référence dans scénarios tunnel_packet_loss
+    "no_bandwidth_limit_reference", # step référence dans scénarios tunnel_bandwidth
+    "00_reference_baseline",
+    "01_clean_near_baseline",
+    "20_decomp_baseline",
+    "35_clean_traffic_baseline",
 ]
 
 
 def assign_label(path_str: str) -> str | None:
-    for pattern, label in LABEL_RULES:
-        if pattern in path_str:
-            return label
+    # SKIP checked first — takes precedence over label rules
     for skip in SKIP_PATTERNS:
         if skip in path_str:
             return None
+    for pattern, label in LABEL_RULES:
+        if pattern in path_str:
+            return label
     return None
 
 
