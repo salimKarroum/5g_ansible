@@ -30,6 +30,21 @@ METADATA_PREFIXES = ("scenario_is_", "window_is_", "phase_is_",
                      "step_is_multi_ue", "step_num_qhats", "step_parallel",
                      "step_total_parallel_flows")
 
+# Features requiring the eBPF latency probe (not accessible to a standard operator)
+EBPF_PREFIXES = (
+    "direct_",           # gtp_teid_latency_* — GTP direct RTT
+    "same_packet_",      # gtp_same_packet_* — gNB/UPF correlated RTT
+    "tcp_data_observed", # gtp_tcp_data_observed_*
+    "tcp_ack_observed",  # gtp_tcp_ack_observed_*
+    "tcp_rtt_emitted",   # gtp_tcp_rtt_emitted_*
+    "tcp_evict",         # gtp_tcp_pending_evicted_* (+ augmented ratio)
+    "tcp_no_match",      # gtp_tcp_ack_no_match_* (+ augmented ratio)
+)
+
+
+def is_ebpf_feature(name):
+    return any(name.startswith(p) for p in EBPF_PREFIXES)
+
 
 def load_csv(filepath):
     rows = []
@@ -219,6 +234,9 @@ def analyze_errors(X_top, y, runs, feature_names, top_names):
     mask2 = np.isin(y, ["tunnel_packet_loss", "controlled_delay"])
     X_sub2 = X_top[mask2]
     y_sub2 = y[mask2]
+    if X_sub2.shape[0] == 0:
+        print("  (aucune donnée tunnel_packet_loss/controlled_delay — analyse ignorée)")
+        return
     X_imp2 = imputer.fit_transform(X_sub2)
 
     tcp_feats = [(i, n) for i, n in enumerate(top_names)
@@ -243,10 +261,20 @@ def main():
                     default="results/ml_dataset_v3/window_features_augmented.csv")
     ap.add_argument("--nan-threshold", type=float, default=10.0)
     ap.add_argument("--analyze-errors", action="store_true")
+    ap.add_argument("--exclude-classes", default="",
+                    help="Comma-separated list of classes to exclude, e.g. load_ramp,server_stress")
+    ap.add_argument("--standard-only", action="store_true",
+                    help="Use only STANDARD features (no eBPF probe required). "
+                         "Shows classifier performance without the ebpf-latency-probe.")
     args = ap.parse_args()
+
+    exclude = {c.strip() for c in args.exclude_classes.split(",") if c.strip()}
 
     print(f"Loading {args.csv} ...")
     header, rows = load_csv(args.csv)
+    if exclude:
+        rows = [r for r in rows if r[2].strip() not in exclude]
+        print(f"  Excluded classes: {sorted(exclude)}")
     feature_names = header[META_COLS:]
     n_features = len(feature_names)
     print(f"  {len(rows)} samples, {n_features} features")
@@ -254,8 +282,13 @@ def main():
     observable_idx = [i for i, n in enumerate(feature_names) if not is_metadata(n)]
     nan_rates = compute_nan_rates(rows, n_features)
 
-    # Always include tcp_evict / tcp_no_match regardless of NaN rate
-    FORCED_PATTERNS = ("tcp_evict", "tcp_no_match")
+    # Always include tcp_evict / tcp_no_match / dl_mcs regardless of NaN rate or ranking
+    # In --standard-only mode, drop the eBPF-derived forced patterns
+    if args.standard_only:
+        FORCED_PATTERNS = ("dl_mcs", "dl_bler")
+        print("  [standard-only] Excluding all eBPF features (direct_*, same_packet_*, tcp_evict*, tcp_no_match*, ...)")
+    else:
+        FORCED_PATTERNS = ("tcp_evict", "tcp_no_match", "dl_mcs", "dl_bler")
 
     def is_forced_feat(name):
         return any(p in name for p in FORCED_PATTERNS)
@@ -264,6 +297,8 @@ def main():
         [i for i in observable_idx if nan_rates[i] <= args.nan_threshold] +
         [i for i in observable_idx if is_forced_feat(feature_names[i])]
     ))
+    if args.standard_only:
+        clean_idx = [i for i in clean_idx if not is_ebpf_feature(feature_names[i])]
     print(f"  Observable + low-NaN + forced: {len(clean_idx)} features")
 
     X_clean, y, runs = build_matrix(rows, clean_idx)

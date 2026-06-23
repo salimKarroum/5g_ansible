@@ -19,7 +19,7 @@
     - name: Set paper scenario defaults
       ansible.builtin.set_fact:
         paper_required_ues: "{{ paper_required_ues | default(paper_required_ues_default) }}"
-        paper_target_server_host: "{{ target_server_host | default(paper_target_server_host | default('sopnode-w3')) }}"
+        paper_target_server_host: "{{ target_server_host | default(paper_target_server_host | default('sopnode-f1')) }}"
         paper_base_port: "{{ paper_base_port | default(5201) }}"
         paper_duration: "{{ paper_duration | default(300) }}"
         paper_async_grace: "{{ paper_async_grace | default(180) }}"
@@ -80,6 +80,32 @@
           Target server {{ paper_target_server_host }} is not in the inventory.
           Add sopnode-w3 as an iperf_server_node or pass -e target_server_host=<host>.
       when: paper_target_server_host not in hostvars
+
+    - name: Check eBPF latency probe pods
+      ansible.builtin.command: >
+        kubectl get pods
+        --kubeconfig {{ paper_kubeconfig }}
+        -n {{ core | default('open5gs') }}
+        -l app=ebpf-latency-probe
+        --field-selector=status.phase=Running
+        -o jsonpath={.items[*].metadata.name}
+      register: ebpf_probe_running_pods
+      changed_when: false
+      failed_when: false
+      when: ebpf_probe_preflight_enabled | default(true) | bool
+
+    - name: Fail if no eBPF latency probe is Running
+      ansible.builtin.fail:
+        msg: >
+          PREFLIGHT FAIL: No ebpf-latency-probe pod in Running state found in namespace
+          {{ core | default('open5gs') }}.
+          Without the eBPF probe, gtp_tcp_* and gtp_teid_latency_* metrics will be missing,
+          which degrades classifier accuracy (especially tunnel_packet_loss vs controlled_delay).
+          Fix: ensure the ebpf-latency-probe DaemonSet is deployed and all pods are Running.
+          To skip this check: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
+      when:
+        - ebpf_probe_preflight_enabled | default(true) | bool
+        - (ebpf_probe_running_pods.stdout | default('') | trim) == ''
 
     - name: Create local results directory
       ansible.builtin.file:

@@ -16,7 +16,7 @@
     - name: Set validation defaults
       ansible.builtin.set_fact:
         validation_results_dir: "{{ validation_results_dir | default(playbook_dir + '/../results/latency-validation-' + validation_run_id) }}"
-        validation_target_server_host: "{{ target_server_host | default(validation_target_server_host | default('sopnode-w3')) }}"
+        validation_target_server_host: "{{ target_server_host | default(validation_target_server_host | default('sopnode-f1')) }}"
         validation_base_port: "{{ validation_base_port | default(5201) }}"
         validation_duration: "{{ validation_duration | default(paper_duration | default(120)) }}"
         validation_async_grace: "{{ validation_async_grace | default(180) }}"
@@ -145,8 +145,34 @@
       ansible.builtin.fail:
         msg: >
           Target server {{ validation_target_server_host }} is not in the inventory.
-          Add sopnode-w3 as an iperf_server_node or pass -e target_server_host=<host>.
+          Add sopnode-f1 as an iperf_server_node or pass -e target_server_host=<host>.
       when: validation_target_server_host not in hostvars
+
+    - name: Check eBPF latency probe pods
+      ansible.builtin.command: >
+        kubectl get pods
+        --kubeconfig {{ validation_kubeconfig }}
+        -n {{ validation_core_namespace_effective }}
+        -l app=ebpf-latency-probe
+        --field-selector=status.phase=Running
+        -o jsonpath={.items[*].metadata.name}
+      register: ebpf_probe_running_pods
+      changed_when: false
+      failed_when: false
+      when: ebpf_probe_preflight_enabled | default(true) | bool
+
+    - name: Fail if no eBPF latency probe is Running
+      ansible.builtin.fail:
+        msg: >
+          PREFLIGHT FAIL: No ebpf-latency-probe pod in Running state found in namespace
+          {{ validation_core_namespace_effective }}.
+          Without the eBPF probe, gtp_tcp_* and gtp_teid_latency_* metrics will be missing,
+          which degrades classifier accuracy (especially tunnel_packet_loss vs controlled_delay).
+          Fix: ensure the ebpf-latency-probe DaemonSet is deployed and all pods are Running.
+          To skip this check: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
+      when:
+        - ebpf_probe_preflight_enabled | default(true) | bool
+        - (ebpf_probe_running_pods.stdout | default('') | trim) == ''
 
     - name: Create validation results directories
       ansible.builtin.file:
