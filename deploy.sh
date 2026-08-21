@@ -1592,7 +1592,7 @@ deploy() {
 
     echo "Launching deployment..."
 
-    run_cmd ansible-galaxy install -r collections/requirements.yml
+    run_cmd ansible-galaxy install -r collections/requirements.yml || exit $?
 
     if [[ "$platform" == "r2lab" ]]; then
       echo "ansible-playbook -i $INVENTORY ${ANSIBLE_EXTRA_ARGS[@]} playbooks/deploy_r2lab.yml &"
@@ -1606,6 +1606,15 @@ deploy() {
     run_cmd ansible-playbook -i "$INVENTORY" \
       "${ANSIBLE_EXTRA_ARGS[@]}" \
       playbooks/deploy.yml 2>&1 | tee ${DIR_LOGS}/logs.txt
+    local deploy_status="${PIPESTATUS[0]}"
+    if [[ "$deploy_status" -ne 0 ]]; then
+      echo ""
+      echo "=========================================="
+      echo "========== Deployment Failed ============="
+      echo "=========================================="
+      echo ""
+      exit "$deploy_status"
+    fi
 
 
     echo ""

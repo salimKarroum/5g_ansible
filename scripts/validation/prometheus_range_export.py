@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import re
 import sys
@@ -247,6 +248,12 @@ def write_rows(
     return count
 
 
+def open_output_csv(path: Path):
+    if path.suffix == ".gz":
+        return gzip.open(path, "wt", newline="", encoding="utf-8")
+    return path.open("w", newline="", encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--prometheus-url", required=True)
@@ -290,7 +297,7 @@ def main() -> int:
     }
 
     fields = ["query_name", "query", "timestamp", "value", "metric_json", *COMMON_LABELS]
-    with out_path.open("w", newline="", encoding="utf-8") as fp:
+    with open_output_csv(out_path) as fp:
         writer = csv.DictWriter(fp, fieldnames=fields)
         writer.writeheader()
 

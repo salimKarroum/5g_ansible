@@ -1,0 +1,71 @@
+{
+  "window": "60s",
+  "variables": {
+    "NAMESPACE": "open5gs",
+    "UPF_POD_REGEX": "open5gs-upf.*",
+    "SERVER_POD_REGEX": ".*iperf.*|.*qhat.*|.*server.*",
+    "OPEN5GS_POD_REGEX": "open5gs.*|oai-gnb.*"
+  },
+  "features": {
+    "direct_latest_ms_median": {
+      "query": "quantile_over_time(0.50, (gtp_teid_latency_ns{probe_role=\"gnb\"} / 1000000)[${WINDOW}:5s])",
+      "reduce": "mean"
+    },
+    "direct_latest_ms_mean": {
+      "query": "avg_over_time((gtp_teid_latency_ns{probe_role=\"gnb\"} / 1000000)[${WINDOW}:5s])",
+      "reduce": "mean"
+    },
+    "rf_oai_gnb_l1_prach_i0_db_mean": {
+      "query": "avg_over_time(oai_gnb_l1_prach_i0_db[${WINDOW}])",
+      "reduce": "mean"
+    },
+    "upf_cpu_cores_p95": {
+      "query": "quantile_over_time(0.95, (sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${UPF_POD_REGEX}\",container!=\"POD\",container!=\"\"}[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "upf_memory_mib_median": {
+      "query": "quantile_over_time(0.50, (sum(container_memory_working_set_bytes{namespace=\"${NAMESPACE}\",pod=~\"${UPF_POD_REGEX}\",container!=\"POD\",container!=\"\"}) / 1024 / 1024)[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "server_cpu_cores_mean": {
+      "query": "avg_over_time((sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${SERVER_POD_REGEX}\",container!=\"POD\",container!=\"\"}[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "server_cpu_cores_p95": {
+      "query": "quantile_over_time(0.95, (sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${SERVER_POD_REGEX}\",container!=\"POD\",container!=\"\"}[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "server_cpu_cores_max": {
+      "query": "max_over_time((sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${SERVER_POD_REGEX}\",container!=\"POD\",container!=\"\"}[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "server_memory_mib_median": {
+      "query": "quantile_over_time(0.50, (sum(container_memory_working_set_bytes{namespace=\"${NAMESPACE}\",pod=~\"${SERVER_POD_REGEX}\",container!=\"POD\",container!=\"\"}) / 1024 / 1024)[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "tcp_ack_no_match_hz_30s_median": {
+      "query": "quantile_over_time(0.50, (sum(rate(gtp_tcp_ack_no_match_total[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "tcp_ack_observed_hz_30s_min": {
+      "query": "min_over_time((sum(rate(gtp_tcp_ack_observed_total[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "tcp_ack_observed_hz_30s_mean": {
+      "query": "avg_over_time((sum(rate(gtp_tcp_ack_observed_total[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "container_cpu_cores_p95": {
+      "query": "quantile_over_time(0.95, (sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${OPEN5GS_POD_REGEX}\",container!=\"POD\",container!=\"\"}[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "container_cpu_cores_max": {
+      "query": "max_over_time((sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${OPEN5GS_POD_REGEX}\",container!=\"POD\",container!=\"\"}[30s])))[${WINDOW}:5s])",
+      "reduce": "first"
+    },
+    "container_memory_mib_p95": {
+      "query": "quantile_over_time(0.95, (sum(container_memory_working_set_bytes{namespace=\"${NAMESPACE}\",pod=~\"${OPEN5GS_POD_REGEX}\",container!=\"POD\",container!=\"\"}) / 1024 / 1024)[${WINDOW}:5s])",
+      "reduce": "first"
+    }
+  }
+}

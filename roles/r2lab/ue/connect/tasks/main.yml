@@ -34,6 +34,7 @@
     "ip -4 addr show wwan0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || true"
   register: check_ip_ready
   changed_when: false
+  failed_when: false
 
 - name: Stop then Start UE via jump host
   shell: "ssh root@{{ ue_item }} 'stop.sh; start.sh -F {{ current_dnn }}'"

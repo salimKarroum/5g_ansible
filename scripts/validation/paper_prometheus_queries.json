@@ -154,5 +154,29 @@
   {
     "name": "node_cpu_softirq_cores_30s",
     "query": "sum by (instance) (rate(node_cpu_seconds_total{mode=\"softirq\"}[30s]))"
+  },
+  {
+    "name": "node_tcp_retrans_hz_30s",
+    "query": "sum by (instance) (rate(node_netstat_Tcp_RetransSegs[30s]))"
+  },
+  {
+    "name": "node_tcp_out_segs_hz_30s",
+    "query": "sum by (instance) (rate(node_netstat_Tcp_OutSegs[30s]))"
+  },
+  {
+    "name": "node_tcp_in_segs_hz_30s",
+    "query": "sum by (instance) (rate(node_netstat_Tcp_InSegs[30s]))"
+  },
+  {
+    "name": "mac_throughput_per_rnti_bps_30s",
+    "query": "sum by (direction, rnti) (rate(mac_throughput_bytes_total[30s]) * 8)"
+  },
+  {
+    "name": "oai_gnb_mac_rsrp_per_rnti",
+    "query": "oai_gnb_mac_rsrp"
+  },
+  {
+    "name": "oai_gnb_mac_mcs_per_rnti",
+    "query": "oai_gnb_mac_mcs"
   }
 ]

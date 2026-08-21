@@ -1,0 +1,8 @@
+,controlled_delay,controlled_jitter,far_ue_poor_radio,radio_interference,tunnel_bandwidth_limit,tunnel_packet_loss,upf_stress
+controlled_delay,35,5,0,2,0,6,0
+controlled_jitter,9,34,0,0,5,0,0
+far_ue_poor_radio,0,0,48,0,0,0,0
+radio_interference,2,0,2,43,1,0,0
+tunnel_bandwidth_limit,0,7,2,2,36,1,0
+tunnel_packet_loss,0,4,0,0,2,42,0
+upf_stress,0,0,0,1,0,0,47

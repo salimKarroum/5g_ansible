@@ -168,7 +168,27 @@
       i=$((i + 1))
     done
     echo "stress_pids=${pids}" >> "$LOG"
-    sleep "$DURATION"
+    {
+      echo "==== server stress CPU snapshot: start ===="
+      uptime || true
+      ps -o pid,ppid,pcpu,pmem,comm -p $(printf '%s' "$pids" | tr ' ' ',') || true
+    } >> "$LOG" 2>&1
+    half=$((DURATION / 2))
+    rest=$((DURATION - half))
+    if [ "$half" -gt 0 ]; then
+      sleep "$half"
+      {
+        echo "==== server stress CPU snapshot: middle ===="
+        uptime || true
+        ps -o pid,ppid,pcpu,pmem,comm -p $(printf '%s' "$pids" | tr ' ' ',') || true
+      } >> "$LOG" 2>&1
+    fi
+    sleep "$rest"
+    {
+      echo "==== server stress CPU snapshot: before cleanup ===="
+      uptime || true
+      ps -o pid,ppid,pcpu,pmem,comm -p $(printf '%s' "$pids" | tr ' ' ',') || true
+    } >> "$LOG" 2>&1
     cleanup
     trap - INT TERM EXIT
     echo "==== server stress finished at $(date -Is) ====" >> "$LOG"

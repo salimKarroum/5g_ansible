@@ -81,31 +81,31 @@
           Add sopnode-w3 as an iperf_server_node or pass -e target_server_host=<host>.
       when: paper_target_server_host not in hostvars
 
-    - name: Check eBPF latency probe pods
-      ansible.builtin.command: >
-        kubectl get pods
-        --kubeconfig {{ paper_kubeconfig }}
-        -n {{ core | default('open5gs') }}
-        -l app=ebpf-latency-probe
-        --field-selector=status.phase=Running
-        -o jsonpath={.items[*].metadata.name}
-      register: ebpf_probe_running_pods
+    - name: Check eBPF probe stack is deployed (gnb-latency-metrics-service exists)
+      ansible.builtin.shell: |
+        kubectl --kubeconfig /etc/kubernetes/admin.conf \
+          get svc gnb-latency-metrics-service \
+          -n {{ core | default('open5gs') }} \
+          -o jsonpath='{.metadata.name}' 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ groups['core_node'][0] }}"
+      become: true
+      register: ebpf_gnb_svc_check
       changed_when: false
       failed_when: false
       when: ebpf_probe_preflight_enabled | default(true) | bool
 
-    - name: Fail if no eBPF latency probe is Running
+    - name: Fail if gnb-latency-metrics-service not found in cluster
       ansible.builtin.fail:
         msg: >
-          PREFLIGHT FAIL: No ebpf-latency-probe pod in Running state found in namespace
-          {{ core | default('open5gs') }}.
-          Without the eBPF probe, gtp_tcp_* and gtp_teid_latency_* metrics will be missing,
-          which degrades classifier accuracy (especially tunnel_packet_loss vs controlled_delay).
-          Fix: ensure the ebpf-latency-probe DaemonSet is deployed and all pods are Running.
-          To skip this check: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
+          PREFLIGHT FAIL: gnb-latency-metrics-service not found in namespace
+          {{ core | default('open5gs') }}. The eBPF probe stack is not deployed.
+          Run the deploy playbook first, then wait for kopf-latency-controller to start.
+          To skip: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
       when:
         - ebpf_probe_preflight_enabled | default(true) | bool
-        - (ebpf_probe_running_pods.stdout | default('') | trim) == ''
+        - (ebpf_gnb_svc_check.stdout | default('') | trim) == ''
 
     - name: Create local results directory
       ansible.builtin.file:
@@ -1044,6 +1044,45 @@
           ansible.builtin.set_fact:
             ue_ips: {}
 
+        - name: Wait for eBPF probes to activate on gNB (max 90s — connect UEs manually if not done yet)
+          ansible.builtin.shell: |
+            set -e
+            NS={{ core | default('open5gs') }}
+            KC=/etc/kubernetes/admin.conf
+            kubectl --kubeconfig $KC port-forward -n $NS \
+              svc/gnb-latency-metrics-service 59100:9100 >/dev/null 2>&1 &
+            PF_PID=$!
+            sleep 2
+            COUNT=$(curl -s http://localhost:59100/latency 2>/dev/null \
+              | grep -c "^# HELP gtp_teid" || echo 0)
+            kill $PF_PID 2>/dev/null || true
+            echo $COUNT
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ groups['core_node'][0] }}"
+          become: true
+          register: ebpf_pre_ue_check
+          until: (ebpf_pre_ue_check.stdout | default('0') | trim | int) > 0
+          retries: 9
+          delay: 10
+          changed_when: false
+          failed_when: false
+          when: ebpf_probe_preflight_enabled | default(true) | bool
+
+        - name: Fail if eBPF probes not active before starting scenarios
+          ansible.builtin.fail:
+            msg: >
+              PREFLIGHT FAIL: gtp_teid metrics not found on gnb-latency-metrics-service:9100/latency
+              after 90 seconds. Action required:
+              1. Connect UEs manually to the 5G network (qhat01, qhat02, qhat03)
+              2. Wait ~30 seconds for kopf to inject probes
+              3. Verify: kubectl logs -n {{ core | default('open5gs') }} kopf-controller-* --tail=20
+              4. Re-run the playbook
+              To skip this check: -e ebpf_probe_preflight_enabled=false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - (ebpf_pre_ue_check.stdout | default('0') | trim | int) == 0
+
         - name: Record UE connection phase start
           ansible.builtin.include_tasks: ../tasks/record_paper_timeline_event.yml
           vars:
@@ -1084,6 +1123,78 @@
           ansible.builtin.fail:
             msg: "UEs without wwan0 IP: {{ paper_active_ues | difference(paper_connected_ues) }}"
           when: (paper_active_ues | difference(paper_connected_ues)) | length > 0
+
+        - name: Wait for eBPF probes to activate on gNB (max 60s after UE connection)
+          ansible.builtin.shell: |
+            set -e
+            NS={{ core | default('open5gs') }}
+            KC=/etc/kubernetes/admin.conf
+            kubectl --kubeconfig $KC port-forward -n $NS \
+              svc/gnb-latency-metrics-service 59100:9100 >/dev/null 2>&1 &
+            PF_PID=$!
+            sleep 2
+            COUNT=$(curl -s http://localhost:59100/latency 2>/dev/null \
+              | grep -c "^# HELP gtp_teid" || echo 0)
+            kill $PF_PID 2>/dev/null || true
+            echo $COUNT
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ groups['core_node'][0] }}"
+          become: true
+          register: ebpf_metrics_active_check
+          until: (ebpf_metrics_active_check.stdout | default('0') | trim | int) > 0
+          retries: 6
+          delay: 10
+          changed_when: false
+          failed_when: false
+          when: ebpf_probe_preflight_enabled | default(true) | bool
+
+        - name: Auto-recover gNB eBPF probe when latency metrics are missing
+          ansible.builtin.shell: |
+            set -e
+            NS={{ core | default('open5gs') }}
+            KC=/etc/kubernetes/admin.conf
+
+            echo "gtp_teid metrics missing; restarting oai-gnb pod to force fresh eBPF injection..." >&2
+            kubectl --kubeconfig $KC -n $NS delete pod -l app=oai-gnb --wait=false >&2
+            kubectl --kubeconfig $KC -n $NS wait --for=condition=Ready pod -l app=oai-gnb --timeout=180s >&2
+            sleep 30
+
+            kubectl --kubeconfig $KC port-forward -n $NS \
+              svc/gnb-latency-metrics-service 59100:9100 >/dev/null 2>&1 &
+            PF_PID=$!
+            trap 'kill $PF_PID 2>/dev/null || true' EXIT
+            sleep 2
+            COUNT=$(curl -s http://localhost:59100/latency 2>/dev/null \
+              | grep -c "^# HELP gtp_teid" || echo 0)
+            echo $COUNT
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ groups['core_node'][0] }}"
+          become: true
+          register: ebpf_recovery_check
+          changed_when: true
+          failed_when: false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - (ebpf_metrics_active_check.stdout | default('0') | trim | int) == 0
+
+        - name: Compute final eBPF preflight metric count
+          ansible.builtin.set_fact:
+            ebpf_final_metric_count: "{{ ebpf_recovery_check.stdout | default(ebpf_metrics_active_check.stdout | default('0')) | trim | int }}"
+          when: ebpf_probe_preflight_enabled | default(true) | bool
+
+        - name: Fail if eBPF probes not active after UE connection
+          ansible.builtin.fail:
+            msg: >
+              PREFLIGHT FAIL: gtp_teid metrics not found on gnb-latency-metrics-service:9100/latency
+              after 60 seconds and one automatic gNB pod restart. eBPF probes were not injected by kopf-latency-controller.
+              Check kopf logs: kubectl logs -n {{ core | default('open5gs') }} kopf-controller-* --tail=50
+              Expected: ues=N teid_args=N and "Probe already running".
+              To skip: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - (ebpf_final_metric_count | default(0) | int) == 0
 
         - name: Prepare per-UE remote log directory
           ansible.builtin.shell: |

@@ -4,3 +4,31 @@ logs*
 .deployment.env
 .kubeadm_join_command.txt
 admin.conf
+
+# Python and local environments
+__pycache__/
+*.pyc
+.venv*/
+venv/
+
+# Local/generated experiment outputs. The reproducibility datasets kept under
+# reproducibility/data/ are intentionally committed.
+results/tcp-paper-*/
+results/latency-validation-*/
+results/manual-network/validated_network_campaign_*/
+tmp_report_check/
+tmp_remote_artifacts/
+reproducibility/outputs/
+
+# Heavy raw artifacts
+*.pcap
+*.pcapng
+*.tgz
+*.tar
+*.tar.gz
+*.log
+prometheus_timeseries.csv
+prometheus_timeseries.csv.gz
+
+# Local generated notebooks/figures can be regenerated unless explicitly added.
+*.ipynb_checkpoints/

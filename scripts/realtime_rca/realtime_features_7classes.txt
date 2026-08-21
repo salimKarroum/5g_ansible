@@ -1,0 +1,15 @@
+direct_latest_ms_median
+direct_latest_ms_mean
+direct_latest_ms_p95
+rf_slice_throughput_max
+rf_slice_throughput_mean
+rf_slice_throughput_p95
+tcp_ack_no_match_hz_30s_median
+tcp_ack_no_match_hz_30s_min
+tcp_ack_observed_hz_30s_min
+tcp_ack_observed_hz_30s_mean
+upf_cpu_cores_p95
+upf_cpu_cores_max
+upf_cpu_cores_std
+upf_memory_mib_median
+rf_oai_gnb_l1_prach_i0_db_mean

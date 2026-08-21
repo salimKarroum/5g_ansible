@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rca-inference
+  namespace: open5gs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rca-inference
+  template:
+    metadata:
+      labels:
+        app: rca-inference
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9300"
+    spec:
+      containers:
+        - name: rca-inference
+          image: rca-inference:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9300
+              name: metrics
+          env:
+            - name: PROMETHEUS_URL
+              value: http://prometheus-nssdc-prometheus.monarch.svc.cluster.local:9090
+            - name: RCA_MODEL
+              value: /app/realtime_rca_model.pkl
+            - name: RCA_FEATURE_QUERIES
+              value: /app/feature_queries.json
+            - name: RCA_PORT
+              value: "9300"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rca-inference
+  namespace: open5gs
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9300"
+spec:
+  selector:
+    app: rca-inference
+  ports:
+    - name: metrics
+      port: 9300
+      targetPort: metrics

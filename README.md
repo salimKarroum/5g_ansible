@@ -6,6 +6,36 @@ This repository provides a fully automated [Ansible](https://www.ansible.com/) f
 
 To run it, you need a valid [SLICES account](https://doc.slices-ri.eu/). If you select a scenario with real 5G hardware (RUs and UEs) you also need a valid [R2Lab account](https://r2lab.inria.fr/tuto-010-registration.md). 
 
+## RCA Report Reproducibility
+
+The datasets, selected K=28 feature list, saved Random Forest model artifact and
+reference evaluation outputs used in the RCA internship report are included
+under [`reproducibility/data`](reproducibility/data).
+
+Repository URL:
+
+```text
+https://github.com/salimKarroum/5g_ansible.git
+```
+
+The full reproduction instructions are provided in
+[`reproducibility/README.md`](reproducibility/README.md). In short, the main
+report results can be recomputed with:
+
+```bash
+python3 scripts/ml/evaluate_k28_report_results.py \
+  --original-csv reproducibility/data/window_features_physical_7_anomalies_derived.csv \
+  --balanced-csv reproducibility/data/window_features_physical_7_anomalies_derived_balanced48.csv \
+  --features-file reproducibility/data/selected_features_mechanism_clean.txt \
+  --cross-stack-csv reproducibility/data/cross_stack_combined_balanced.csv \
+  --out-dir reproducibility/outputs \
+  --n-jobs -1
+```
+
+This regenerates the Leave-One-Run-Out Random Forest K=28 results, Logistic
+Regression baseline, majority-class baseline, run coverage tables and
+cross-stack dataset summary.
+
 
 > NOTA: First version of this script was developed in June 2025 by Ziyad Mabrouk as part of his internship at [Inria Sophia Antipolis](https://www.inria.fr/en/inria-centre-universite-cote-azur), under the supervision of: Thierry Turletti, Chadi Barakat, and Walid Dabbous.
 

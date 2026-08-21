@@ -74,6 +74,8 @@
         validation_ping_upf_pod_selectors: "{{ validation_ping_upf_pod_selectors | default(['nf=upf', 'app=open5gs,nf=upf', 'app.kubernetes.io/name=open5gs-upf']) }}"
         validation_ping_upf_pod_regex: "{{ validation_ping_upf_pod_regex | default(validation_netem_upf_pod_regex | default(validation_netem_target_pod_regex | default(''))) }}"
         validation_netem_delay_ms: "{{ validation_netem_delay_ms | default(200) }}"
+        validation_jitter_base_delay_ms: "{{ validation_jitter_base_delay_ms | default(50) }}"
+        validation_jitter_corr_pct: "{{ validation_jitter_corr_pct | default(75) }}"
         validation_netem_loss_pct: "{{ validation_netem_loss_pct | default(2) }}"
         validation_server_bandwidth_limit_mbit: "{{ validation_server_bandwidth_limit_mbit | default(10) }}"
         validation_netem_method: "{{ validation_netem_method | default('pod_ifb_redirect') }}"
@@ -148,31 +150,31 @@
           Add sopnode-f1 as an iperf_server_node or pass -e target_server_host=<host>.
       when: validation_target_server_host not in hostvars
 
-    - name: Check eBPF latency probe pods
-      ansible.builtin.command: >
-        kubectl get pods
-        --kubeconfig {{ validation_kubeconfig }}
-        -n {{ validation_core_namespace_effective }}
-        -l app=ebpf-latency-probe
-        --field-selector=status.phase=Running
-        -o jsonpath={.items[*].metadata.name}
-      register: ebpf_probe_running_pods
+    - name: Check eBPF probe stack is deployed (gnb-latency-metrics-service exists)
+      ansible.builtin.shell: |
+        kubectl --kubeconfig {{ validation_kubeconfig | quote }} \
+          get svc gnb-latency-metrics-service \
+          -n {{ validation_core_namespace_effective }} \
+          -o jsonpath='{.metadata.name}' 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ validation_k8s_control_host | default(groups['core_node'][0]) }}"
+      become: true
+      register: ebpf_gnb_svc_check
       changed_when: false
       failed_when: false
       when: ebpf_probe_preflight_enabled | default(true) | bool
 
-    - name: Fail if no eBPF latency probe is Running
+    - name: Fail if gnb-latency-metrics-service not found in cluster
       ansible.builtin.fail:
         msg: >
-          PREFLIGHT FAIL: No ebpf-latency-probe pod in Running state found in namespace
-          {{ validation_core_namespace_effective }}.
-          Without the eBPF probe, gtp_tcp_* and gtp_teid_latency_* metrics will be missing,
-          which degrades classifier accuracy (especially tunnel_packet_loss vs controlled_delay).
-          Fix: ensure the ebpf-latency-probe DaemonSet is deployed and all pods are Running.
-          To skip this check: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
+          PREFLIGHT FAIL: gnb-latency-metrics-service not found in namespace
+          {{ validation_core_namespace_effective }}. The eBPF probe stack is not deployed.
+          Run the deploy playbook first, then wait for kopf-latency-controller to start.
+          To skip: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
       when:
         - ebpf_probe_preflight_enabled | default(true) | bool
-        - (ebpf_probe_running_pods.stdout | default('') | trim) == ''
+        - (ebpf_gnb_svc_check.stdout | default('') | trim) == ''
 
     - name: Create validation results directories
       ansible.builtin.file:
@@ -717,6 +719,8 @@
     validation_ping_upf_container_regex: "{{ hostvars['localhost'].validation_ping_upf_container_regex }}"
     validation_ping_upf_pod_regex: "{{ hostvars['localhost'].validation_ping_upf_pod_regex }}"
     validation_netem_delay_ms: "{{ hostvars['localhost'].validation_netem_delay_ms | int }}"
+    validation_jitter_base_delay_ms: "{{ hostvars['localhost'].validation_jitter_base_delay_ms | int }}"
+    validation_jitter_corr_pct: "{{ hostvars['localhost'].validation_jitter_corr_pct | int }}"
     validation_netem_loss_pct: "{{ hostvars['localhost'].validation_netem_loss_pct | float }}"
     validation_server_bandwidth_limit_mbit: "{{ hostvars['localhost'].validation_server_bandwidth_limit_mbit | float }}"
     validation_netem_method: "{{ hostvars['localhost'].validation_netem_method }}"
@@ -954,7 +958,7 @@
             directions: ["ul", "dl"]
 
       - name: "28_controlled_delay_levels"
-        title: "Controlled GTP-U tunnel delay at 50 ms, 100 ms, and 200 ms levels"
+        title: "Controlled GTP-U tunnel delay at 20 ms, 50 ms, 100 ms, 150 ms, and 200 ms levels"
         include_in_default_all: false
         pause_after: true
         steps:
@@ -962,6 +966,13 @@
             ues: ["qhat01"]
             parallel_streams: 1
             bitrate: "{{ validation_tcp_bitrate_effective }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_20ms"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_delay_ms: 20
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
           - name: "qhat01_p1_netem_delay_50ms"
@@ -976,6 +987,13 @@
             parallel_streams: 1
             bitrate: "{{ validation_tcp_bitrate_effective }}"
             netem_delay_ms: 100
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_150ms"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_delay_ms: 150
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
           - name: "qhat01_p1_netem_delay_200ms"
@@ -1102,6 +1120,207 @@
             pcap_capture_seconds: 30
             directions: ["ul", "dl"]
 
+      - name: "37_controlled_jitter_levels"
+        title: "Controlled correlated GTP-U tunnel jitter with stable median delay and increasing delay variance"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "no_jitter_reference"
+            traffic_type: "tcp_icmp_parallel"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            ping_count: "{{ paper_duration }}"
+            ping_interval: 1
+            pcap_capture_seconds: 60
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_{{ validation_jitter_base_delay_ms }}ms_jitter_10ms_corr_{{ validation_jitter_corr_pct }}pct"
+            traffic_type: "tcp_icmp_parallel"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_delay_ms: "{{ validation_jitter_base_delay_ms }}"
+            netem_jitter_ms: 10
+            netem_jitter_corr_pct: "{{ validation_jitter_corr_pct }}"
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            ping_count: "{{ paper_duration }}"
+            ping_interval: 1
+            pcap_capture_seconds: 60
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_{{ validation_jitter_base_delay_ms }}ms_jitter_25ms_corr_{{ validation_jitter_corr_pct }}pct"
+            traffic_type: "tcp_icmp_parallel"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_delay_ms: "{{ validation_jitter_base_delay_ms }}"
+            netem_jitter_ms: 25
+            netem_jitter_corr_pct: "{{ validation_jitter_corr_pct }}"
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            ping_count: "{{ paper_duration }}"
+            ping_interval: 1
+            pcap_capture_seconds: 60
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_netem_delay_{{ validation_jitter_base_delay_ms }}ms_jitter_50ms_corr_{{ validation_jitter_corr_pct }}pct"
+            traffic_type: "tcp_icmp_parallel"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: "{{ validation_tcp_bitrate_effective }}"
+            netem_delay_ms: "{{ validation_jitter_base_delay_ms }}"
+            netem_jitter_ms: 50
+            netem_jitter_corr_pct: "{{ validation_jitter_corr_pct }}"
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            ping_count: "{{ paper_duration }}"
+            ping_interval: 1
+            pcap_capture_seconds: 60
+            directions: ["ul", "dl"]
+
+      - name: "38_upf_bandwidth_limit_levels"
+        title: "Controlled UPF/N3 path bandwidth limit at 50, 20, and 10 Mbit/s levels"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "no_upf_bandwidth_limit_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_upf_ifb_rate_50mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 50
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_upf_ifb_rate_20mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 20
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_upf_ifb_rate_10mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 10
+            netem_target_role: "upf"
+            netem_host: "{{ validation_netem_host }}"
+            netem_namespace: "{{ validation_netem_namespace }}"
+            netem_pod_iface: "{{ validation_netem_pod_iface }}"
+            netem_pod_selectors: "{{ validation_netem_pod_selectors }}"
+            netem_pod_name_regex: "{{ validation_netem_pod_name_regex }}"
+            netem_pod_container_regex: "{{ validation_netem_pod_container_regex }}"
+            netem_target_pod_regex: "{{ validation_netem_upf_pod_regex }}"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
+      - name: "39_ran_bandwidth_limit_levels"
+        title: "Controlled RAN/gNB N3 path bandwidth limit at 50, 20, and 10 Mbit/s levels"
+        include_in_default_all: false
+        pause_after: true
+        steps:
+          - name: "no_ran_bandwidth_limit_reference"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_ran_ifb_rate_50mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 50
+            netem_target_role: "ran"
+            netem_host: "{{ validation_netem_ran_host }}"
+            netem_namespace: "{{ validation_netem_ran_namespace }}"
+            netem_pod_iface: "{{ validation_netem_ran_pod_iface }}"
+            netem_pod_selectors:
+              - "app=oai-gnb"
+              - "app.kubernetes.io/name=oai-gnb"
+              - "app.kubernetes.io/name=oai-du"
+              - "app.kubernetes.io/name=oai-cu-up"
+              - "app.kubernetes.io/name=oai-cuup"
+            netem_pod_name_regex: "gnb|du|cu-up|cuup"
+            netem_pod_container_regex: "gnb|oai-gnb|nr-gnb|du|cu-up|cuup"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_ran_ifb_rate_20mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 20
+            netem_target_role: "ran"
+            netem_host: "{{ validation_netem_ran_host }}"
+            netem_namespace: "{{ validation_netem_ran_namespace }}"
+            netem_pod_iface: "{{ validation_netem_ran_pod_iface }}"
+            netem_pod_selectors:
+              - "app=oai-gnb"
+              - "app.kubernetes.io/name=oai-gnb"
+              - "app.kubernetes.io/name=oai-du"
+              - "app.kubernetes.io/name=oai-cu-up"
+              - "app.kubernetes.io/name=oai-cuup"
+            netem_pod_name_regex: "gnb|du|cu-up|cuup"
+            netem_pod_container_regex: "gnb|oai-gnb|nr-gnb|du|cu-up|cuup"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+          - name: "qhat01_p1_ran_ifb_rate_10mbit"
+            ues: ["qhat01"]
+            parallel_streams: 1
+            bitrate: ""
+            netem_rate_mbit: 10
+            netem_target_role: "ran"
+            netem_host: "{{ validation_netem_ran_host }}"
+            netem_namespace: "{{ validation_netem_ran_namespace }}"
+            netem_pod_iface: "{{ validation_netem_ran_pod_iface }}"
+            netem_pod_selectors:
+              - "app=oai-gnb"
+              - "app.kubernetes.io/name=oai-gnb"
+              - "app.kubernetes.io/name=oai-du"
+              - "app.kubernetes.io/name=oai-cu-up"
+              - "app.kubernetes.io/name=oai-cuup"
+            netem_pod_name_regex: "gnb|du|cu-up|cuup"
+            netem_pod_container_regex: "gnb|oai-gnb|nr-gnb|du|cu-up|cuup"
+            pcap_capture_seconds: 30
+            directions: ["ul", "dl"]
+
       - name: "33_streaming_baseline"
         title: "Streaming baseline - 1 UE at fixed 50 Mbps DL simulating 4K HDR streaming"
         include_in_default_all: false
@@ -1198,6 +1417,45 @@
           ansible.builtin.set_fact:
             ue_ips: {}
 
+        - name: Wait for eBPF probes to activate on gNB (max 90s — connect UEs manually if not done yet)
+          ansible.builtin.shell: |
+            set -e
+            NS={{ hostvars['localhost'].validation_core_namespace_effective | default('open5gs') }}
+            KC={{ hostvars['localhost'].validation_kubeconfig | quote }}
+            kubectl --kubeconfig $KC port-forward -n $NS \
+              svc/gnb-latency-metrics-service 59100:9100 >/dev/null 2>&1 &
+            PF_PID=$!
+            sleep 2
+            COUNT=$(curl -s http://localhost:59100/latency 2>/dev/null \
+              | grep -c "^# HELP gtp_teid" || echo 0)
+            kill $PF_PID 2>/dev/null || true
+            echo $COUNT
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ hostvars['localhost'].validation_k8s_control_host | default(groups['core_node'][0]) }}"
+          become: true
+          register: ebpf_pre_ue_check
+          until: (ebpf_pre_ue_check.stdout | default('0') | trim | int) > 0
+          retries: 9
+          delay: 10
+          changed_when: false
+          failed_when: false
+          when: ebpf_probe_preflight_enabled | default(true) | bool
+
+        - name: Fail if eBPF probes not active before starting scenarios
+          ansible.builtin.fail:
+            msg: >
+              PREFLIGHT FAIL: gtp_teid metrics not found on gnb-latency-metrics-service:9100/latency
+              after 90 seconds. Action required:
+              1. Connect UEs manually to the 5G network (qhat01, qhat02)
+              2. Wait ~30 seconds for kopf to inject probes
+              3. Verify: kubectl logs -n {{ hostvars['localhost'].validation_core_namespace_effective | default('open5gs') }} kopf-controller-* --tail=20
+              4. Re-run the playbook
+              To skip this check: -e ebpf_probe_preflight_enabled=false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - (ebpf_pre_ue_check.stdout | default('0') | trim | int) == 0
+
         - name: Record validation UE connection phase start
           ansible.builtin.include_tasks: ../tasks/record_paper_timeline_event.yml
           vars:
@@ -1243,6 +1501,84 @@
           ansible.builtin.debug:
             msg: "Skipping validation scenario execution because these UEs did not get wwan0 IPs: {{ validation_missing_ues }}"
           when: validation_missing_ues | length > 0
+
+        - name: Wait for eBPF probes to activate on gNB (max 60s after UE connection)
+          ansible.builtin.shell: |
+            set -e
+            NS={{ hostvars['localhost'].validation_core_namespace_effective | default('open5gs') }}
+            KC={{ hostvars['localhost'].validation_kubeconfig | quote }}
+            kubectl --kubeconfig $KC port-forward -n $NS \
+              svc/gnb-latency-metrics-service 59100:9100 >/dev/null 2>&1 &
+            PF_PID=$!
+            sleep 2
+            COUNT=$(curl -s http://localhost:59100/latency 2>/dev/null \
+              | grep -c "^# HELP gtp_teid" || echo 0)
+            kill $PF_PID 2>/dev/null || true
+            echo $COUNT
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ hostvars['localhost'].validation_k8s_control_host | default(groups['core_node'][0]) }}"
+          become: true
+          register: ebpf_metrics_active_check
+          until: (ebpf_metrics_active_check.stdout | default('0') | trim | int) > 0
+          retries: 6
+          delay: 10
+          changed_when: false
+          failed_when: false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - validation_missing_ues | length == 0
+
+        - name: Auto-recover gNB eBPF probe when latency metrics are missing
+          ansible.builtin.shell: |
+            set -e
+            NS={{ hostvars['localhost'].validation_core_namespace_effective | default('open5gs') }}
+            KC={{ hostvars['localhost'].validation_kubeconfig | quote }}
+
+            echo "gtp_teid metrics missing; restarting oai-gnb pod to force fresh eBPF injection..." >&2
+            kubectl --kubeconfig $KC -n $NS delete pod -l app=oai-gnb --wait=false >&2
+            kubectl --kubeconfig $KC -n $NS wait --for=condition=Ready pod -l app=oai-gnb --timeout=180s >&2
+            sleep 30
+
+            kubectl --kubeconfig $KC port-forward -n $NS \
+              svc/gnb-latency-metrics-service 59100:9100 >/dev/null 2>&1 &
+            PF_PID=$!
+            trap 'kill $PF_PID 2>/dev/null || true' EXIT
+            sleep 2
+            COUNT=$(curl -s http://localhost:59100/latency 2>/dev/null \
+              | grep -c "^# HELP gtp_teid" || echo 0)
+            echo $COUNT
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ hostvars['localhost'].validation_k8s_control_host | default(groups['core_node'][0]) }}"
+          become: true
+          register: ebpf_recovery_check
+          changed_when: true
+          failed_when: false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - validation_missing_ues | length == 0
+            - (ebpf_metrics_active_check.stdout | default('0') | trim | int) == 0
+
+        - name: Compute final eBPF preflight metric count
+          ansible.builtin.set_fact:
+            ebpf_final_metric_count: "{{ ebpf_recovery_check.stdout | default(ebpf_metrics_active_check.stdout | default('0')) | trim | int }}"
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - validation_missing_ues | length == 0
+
+        - name: Fail if eBPF probes not active after UE connection
+          ansible.builtin.fail:
+            msg: >
+              PREFLIGHT FAIL: gtp_teid metrics not found on gnb-latency-metrics-service:9100/latency
+              after 60 seconds and one automatic gNB pod restart. eBPF probes were not injected by kopf-latency-controller.
+              Check kopf logs: kubectl logs -n {{ hostvars['localhost'].validation_core_namespace_effective | default('open5gs') }} kopf-controller-* --tail=50
+              Expected: ues=N teid_args=N and "Probe already running".
+              To skip: ansible-playbook ... -e ebpf_probe_preflight_enabled=false
+          when:
+            - ebpf_probe_preflight_enabled | default(true) | bool
+            - validation_missing_ues | length == 0
+            - (ebpf_final_metric_count | default(0) | int) == 0
 
         - name: Prepare per-UE remote log directory
           ansible.builtin.shell: |

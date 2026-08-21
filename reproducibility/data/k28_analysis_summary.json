@@ -1,0 +1,122 @@
+{
+  "cross_stack": {
+    "rows": 60,
+    "runs_by_stack": {
+      "oai_oai": 7,
+      "srsran_open5gs": 7
+    },
+    "runs_by_stack_label": {
+      "('oai_oai', 'controlled_delay')": 1,
+      "('oai_oai', 'controlled_jitter')": 1,
+      "('oai_oai', 'radio_interference')": 1,
+      "('oai_oai', 'tunnel_bandwidth_limit')": 2,
+      "('oai_oai', 'tunnel_packet_loss')": 1,
+      "('oai_oai', 'upf_stress')": 1,
+      "('srsran_open5gs', 'controlled_delay')": 1,
+      "('srsran_open5gs', 'controlled_jitter')": 1,
+      "('srsran_open5gs', 'radio_interference')": 2,
+      "('srsran_open5gs', 'tunnel_bandwidth_limit')": 1,
+      "('srsran_open5gs', 'tunnel_packet_loss')": 1,
+      "('srsran_open5gs', 'upf_stress')": 1
+    },
+    "unique_runs": 14,
+    "windows_by_label": {
+      "controlled_delay": 10,
+      "controlled_jitter": 10,
+      "radio_interference": 10,
+      "tunnel_bandwidth_limit": 10,
+      "tunnel_packet_loss": 10,
+      "upf_stress": 10
+    },
+    "windows_by_stack_label": {
+      "('oai_oai', 'controlled_delay')": 4,
+      "('oai_oai', 'controlled_jitter')": 4,
+      "('oai_oai', 'radio_interference')": 4,
+      "('oai_oai', 'tunnel_bandwidth_limit')": 4,
+      "('oai_oai', 'tunnel_packet_loss')": 4,
+      "('oai_oai', 'upf_stress')": 4,
+      "('srsran_open5gs', 'controlled_delay')": 6,
+      "('srsran_open5gs', 'controlled_jitter')": 6,
+      "('srsran_open5gs', 'radio_interference')": 6,
+      "('srsran_open5gs', 'tunnel_bandwidth_limit')": 6,
+      "('srsran_open5gs', 'tunnel_packet_loss')": 6,
+      "('srsran_open5gs', 'upf_stress')": 6
+    },
+    "windows_by_stack_label_run": {
+      "('oai_oai', 'controlled_delay', 'validated_network_campaign_20260811_150443')": 4,
+      "('oai_oai', 'controlled_jitter', 'validated_network_campaign_20260811_233334')": 4,
+      "('oai_oai', 'radio_interference', 'tcp-paper-20260813_005841')": 4,
+      "('oai_oai', 'tunnel_bandwidth_limit', 'validated_network_campaign_20260812_223228')": 2,
+      "('oai_oai', 'tunnel_bandwidth_limit', 'validated_network_campaign_20260812_230617')": 2,
+      "('oai_oai', 'tunnel_packet_loss', 'validated_network_campaign_20260812_155830')": 4,
+      "('oai_oai', 'upf_stress', 'tcp-paper-20260812_231940')": 4,
+      "('srsran_open5gs', 'controlled_delay', 'validated_network_campaign_20260813_232036')": 6,
+      "('srsran_open5gs', 'controlled_jitter', 'validated_network_campaign_20260813_233126')": 6,
+      "('srsran_open5gs', 'radio_interference', 'tcp-paper-20260814_150525')": 4,
+      "('srsran_open5gs', 'radio_interference', 'tcp-paper-20260814_154252')": 2,
+      "('srsran_open5gs', 'tunnel_bandwidth_limit', 'validated_network_campaign_20260813_235321')": 6,
+      "('srsran_open5gs', 'tunnel_packet_loss', 'validated_network_campaign_20260813_234044')": 6,
+      "('srsran_open5gs', 'upf_stress', 'tcp-paper-20260814_014358')": 6
+    }
+  },
+  "features_count": 28,
+  "labels": [
+    "controlled_delay",
+    "controlled_jitter",
+    "far_ue_poor_radio",
+    "radio_interference",
+    "tunnel_bandwidth_limit",
+    "tunnel_packet_loss",
+    "upf_stress"
+  ],
+  "logistic_regression": {
+    "accuracy": 0.8482142857142857,
+    "fold_macro_f1_max": 1.0,
+    "fold_macro_f1_mean": 0.6759172047453078,
+    "fold_macro_f1_median": 0.7984189723320159,
+    "fold_macro_f1_min": 0.1388888888888889,
+    "fold_macro_f1_std": 0.340204578819147,
+    "macro_f1": 0.8474933566747959,
+    "params": {
+      "C": 1.0,
+      "class_weight": "balanced",
+      "dual": false,
+      "fit_intercept": true,
+      "intercept_scaling": 1,
+      "l1_ratio": 0.0,
+      "max_iter": 5000,
+      "n_jobs": null,
+      "penalty": "l2",
+      "random_state": 42,
+      "solver": "lbfgs",
+      "tol": 0.0001,
+      "verbose": 0,
+      "warm_start": false
+    }
+  },
+  "majority_baseline": {
+    "accuracy": 0.14285714285714285,
+    "class": "controlled_delay",
+    "macro_f1": 0.03571428571428571
+  },
+  "rf_recomputed": {
+    "accuracy": 0.9494047619047619,
+    "fold_macro_f1_max": 1.0,
+    "fold_macro_f1_mean": 0.8735206159758591,
+    "fold_macro_f1_median": 1.0,
+    "fold_macro_f1_min": 0.25396825396825395,
+    "fold_macro_f1_std": 0.23908019665118949,
+    "macro_f1": 0.9486261836867703
+  },
+  "runs": 27,
+  "samples": 336,
+  "source_files": {
+    "balanced_dataset": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/physical_7_anomalies_final_study/window_features_physical_7_anomalies_derived_balanced48.csv",
+    "cross_stack_dataset": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/final_balanced/combined_balanced.csv",
+    "features_file": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/physical_7_anomalies_final_study/mechanism_clean_feature_reduction_balanced48/selected_features_mechanism_clean.txt",
+    "original_dataset": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/physical_7_anomalies_final_study/window_features_physical_7_anomalies_derived.csv",
+    "saved_plot_confusion_matrix": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/physical_7_anomalies_final_study/mechanism_clean_feature_reduction_balanced48/plots/mechanism_clean25_loro_confusion_matrix.csv",
+    "saved_plot_report": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/physical_7_anomalies_final_study/mechanism_clean_feature_reduction_balanced48/plots/mechanism_clean25_loro_classification_report.csv",
+    "sweep_file": "/home/salimk/5G_YASSIR/5g_ansible/results/manual-network/dataset/physical_7_anomalies_final_study/mechanism_clean_feature_reduction_balanced48/mechanism_clean_sweep.csv"
+  }
+}

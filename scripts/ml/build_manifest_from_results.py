@@ -48,6 +48,9 @@ LABEL_RULES = [
     ("v08_server_bandwidth_limit",      "tunnel_bandwidth"),
     ("30_packet_loss_levels",           "tunnel_packet_loss"),
     ("31_bandwidth_limit_levels",       "tunnel_bandwidth"),
+    ("37_controlled_jitter_levels",     "controlled_jitter"),
+    ("38_upf_bandwidth_limit_levels",   "upf_bandwidth_limit"),
+    ("39_ran_bandwidth_limit_levels",   "ran_bandwidth_limit"),
 
     # --- Far UE radio levels (pure far-UE steps only, no near_reference mixed in) ---
     ("34_far_ue_radio_levels",          "far_ue_poor_radio"),
@@ -75,14 +78,16 @@ SKIP_PATTERNS = [
     "far_qhat02_with_near_load",    # step 34 mixte : far UE + near load = contaminé
     "near_reference_qhat01_qhat03", # step 21 référence near : clean_traffic mal labelisé
     "near_far_together",            # step 21 mixte : near + far = contaminé
-    # clean_traffic : source unique = 33_streaming_baseline uniquement
+    # clean_traffic : keep pure, standalone baseline scenarios only.
     "no_netem_reference",           # step référence dans scénarios controlled_delay
     "no_loss_reference",            # step référence dans scénarios tunnel_packet_loss
     "no_bandwidth_limit_reference", # step référence dans scénarios tunnel_bandwidth
+    "no_jitter_reference",
+    "no_upf_bandwidth_limit_reference",
+    "no_ran_bandwidth_limit_reference",
     "00_reference_baseline",
     "01_clean_near_baseline",
     "20_decomp_baseline",
-    "35_clean_traffic_baseline",
 ]
 
 

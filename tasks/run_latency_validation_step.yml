@@ -5,10 +5,10 @@
 
 - name: Set validation netem facts
   ansible.builtin.set_fact:
-    validation_step_netem_enabled: "{{ validation_enable_netem | default(true) | bool and paper_step.netem_delay_ms is defined }}"
+    validation_step_netem_enabled: "{{ validation_enable_netem | default(true) | bool and (paper_step.netem_delay_ms is defined or paper_step.netem_jitter_ms is defined or paper_step.netem_loss_pct is defined or paper_step.netem_rate_mbit is defined) }}"
+    validation_step_netem_method: "{{ paper_step.netem_method | default(validation_netem_method | default('pod_ifb_redirect')) }}"
     validation_step_netem_iface: "{{ validation_netem_interface | default(hostvars[paper_target_server_host].nic_interface | default('')) }}"
     validation_step_netem_ifb: "{{ validation_netem_ifb | default('ifb5gval') }}"
-    validation_step_netem_method: "{{ validation_netem_method | default('pod_ifb_redirect') }}"
     validation_step_netem_peer_ips: "{{ paper_step_ues | map('extract', ue_ips) | list }}"
     validation_step_netem_host: "{{ paper_step.netem_host | default(validation_netem_host | default(groups['core_node'][0])) }}"
     validation_step_netem_target_role: "{{ paper_step.netem_target_role | default(validation_netem_target_role | default('upf')) }}"
@@ -18,6 +18,7 @@
     validation_step_netem_pod_name_regex: "{{ paper_step.netem_pod_name_regex | default(validation_netem_pod_name_regex | default('upf')) }}"
     validation_step_netem_pod_container_regex: "{{ paper_step.netem_pod_container_regex | default(validation_netem_pod_container_regex | default('upf')) }}"
     validation_step_netem_target_pod_regex: "{{ paper_step.netem_target_pod_regex | default(validation_netem_target_pod_regex | default('')) }}"
+    validation_step_netem_jitter_corr_pct: "{{ paper_step.netem_jitter_corr_pct | default(validation_jitter_corr_pct | default('')) }}"
     validation_step_netem_filter_prio: "{{ paper_step.netem_filter_prio | default(validation_netem_filter_prio | default(49152)) }}"
     validation_step_netem_cleanup_filter: "{{ paper_step.netem_cleanup_filter | default(validation_netem_cleanup_filter | default(true)) }}"
     validation_step_netem_cleanup_ifb: "{{ paper_step.netem_cleanup_ifb | default(validation_netem_cleanup_ifb | default(false)) }}"
@@ -47,6 +48,10 @@
       - "Pcap capture seconds: {{ paper_step.pcap_capture_seconds | default(validation_pcap_capture_seconds | default(15)) }}"
       - "Netem enabled for step: {{ validation_step_netem_enabled }}"
       - "Netem delay: {{ paper_step.netem_delay_ms | default('none') }} ms"
+      - "Netem jitter: {{ paper_step.netem_jitter_ms | default('none') }} ms"
+      - "Netem jitter correlation: {{ validation_step_netem_jitter_corr_pct | default('none') }} %"
+      - "Netem loss: {{ paper_step.netem_loss_pct | default('none') }} %"
+      - "Netem rate: {{ paper_step.netem_rate_mbit | default('none') }} Mbit/s"
       - "Netem method: {{ validation_step_netem_method }}"
       - "Netem IFB: {{ validation_step_netem_ifb }}"
       - "Netem target role: {{ validation_step_netem_target_role }}"
@@ -80,6 +85,10 @@
       pcap_capture_seconds: "{{ paper_step.pcap_capture_seconds | default(validation_pcap_capture_seconds | default(15)) | int }}"
       netem_enabled: "{{ validation_step_netem_enabled }}"
       netem_delay_ms: "{{ paper_step.netem_delay_ms | default('') }}"
+      netem_jitter_ms: "{{ paper_step.netem_jitter_ms | default('') }}"
+      netem_jitter_corr_pct: "{{ validation_step_netem_jitter_corr_pct }}"
+      netem_loss_pct: "{{ paper_step.netem_loss_pct | default('') }}"
+      netem_rate_mbit: "{{ paper_step.netem_rate_mbit | default('') }}"
       netem_method: "{{ validation_step_netem_method }}"
       netem_ifb: "{{ validation_step_netem_ifb }}"
       netem_target_role: "{{ validation_step_netem_target_role }}"
@@ -169,7 +178,7 @@
       register: validation_netem_target_resolution
       when:
         - validation_step_netem_enabled | bool
-        - validation_step_netem_method == 'pod_ifb_redirect'
+        - validation_step_netem_method in ['pod_ifb_redirect', 'pod_egress_netem']
       changed_when: false
 
     - name: Set selected pod ingress IFB netem target facts
@@ -181,7 +190,7 @@
         validation_step_netem_target_container_id: "{{ validation_netem_target_resolution.stdout.split('|')[4] }}"
       when:
         - validation_step_netem_enabled | bool
-        - validation_step_netem_method == 'pod_ifb_redirect'
+        - validation_step_netem_method in ['pod_ifb_redirect', 'pod_egress_netem']
 
     - name: Show selected pod ingress IFB netem target
       ansible.builtin.debug:
@@ -192,7 +201,7 @@
           - "Netem target physical node: {{ validation_step_netem_target_node }}"
       when:
         - validation_step_netem_enabled | bool
-        - validation_step_netem_method == 'pod_ifb_redirect'
+        - validation_step_netem_method in ['pod_ifb_redirect', 'pod_egress_netem']
 
     - name: Apply selected pod ingress IFB netem delay
       ansible.builtin.shell: |
@@ -203,7 +212,11 @@
         cid="{{ validation_step_netem_target_container_id }}"
         iface_pref="{{ validation_step_netem_pod_iface }}"
         ifb="{{ validation_step_netem_ifb }}"
-        delay_ms="{{ paper_step.netem_delay_ms }}"
+        delay_ms="{{ paper_step.netem_delay_ms | default('') }}"
+        jitter_ms="{{ paper_step.netem_jitter_ms | default('') }}"
+        jitter_corr_pct="{{ validation_step_netem_jitter_corr_pct | default('') }}"
+        loss_pct="{{ paper_step.netem_loss_pct | default('') }}"
+        rate_mbit="{{ paper_step.netem_rate_mbit | default('') }}"
         filter_prio="{{ validation_step_netem_filter_prio }}"
         target_role="{{ validation_step_netem_target_role }}"
         state_dir="/tmp/{{ paper_run_id }}/netem"
@@ -256,7 +269,36 @@
           nsenter -t "$pid" -n ip link add "$ifb" type ifb
         fi
         nsenter -t "$pid" -n ip link set dev "$ifb" up
-        nsenter -t "$pid" -n tc qdisc add dev "$ifb" root netem delay "${delay_ms}ms"
+        netem_args=""
+        if [ -n "$delay_ms" ]; then
+          if [ -n "$jitter_ms" ]; then
+            jitter_corr_pct=$(printf '%s' "$jitter_corr_pct" | sed 's/%$//')
+            if [ -n "$jitter_corr_pct" ]; then
+              netem_args="$netem_args delay ${delay_ms}ms ${jitter_ms}ms ${jitter_corr_pct}% distribution normal"
+            else
+              netem_args="$netem_args delay ${delay_ms}ms ${jitter_ms}ms distribution normal"
+            fi
+          else
+            netem_args="$netem_args delay ${delay_ms}ms"
+          fi
+        elif [ -n "$jitter_ms" ]; then
+          echo "netem_jitter_ms requires netem_delay_ms" >&2
+          exit 8
+        fi
+        if [ -n "$loss_pct" ]; then
+          netem_args="$netem_args loss ${loss_pct}%"
+        fi
+        if [ -n "$rate_mbit" ] && [ -z "$netem_args" ]; then
+          nsenter -t "$pid" -n tc qdisc add dev "$ifb" root tbf rate "${rate_mbit}mbit" burst 128kbit latency 400ms
+        elif [ -n "$rate_mbit" ] && [ -n "$netem_args" ]; then
+          nsenter -t "$pid" -n tc qdisc add dev "$ifb" root handle 1: tbf rate "${rate_mbit}mbit" burst 128kbit latency 400ms
+          nsenter -t "$pid" -n tc qdisc add dev "$ifb" parent 1:1 handle 10: netem $netem_args
+        elif [ -n "$netem_args" ]; then
+          nsenter -t "$pid" -n tc qdisc add dev "$ifb" root netem $netem_args
+        else
+          echo "No netem delay, loss, or rate configured" >&2
+          exit 8
+        fi
 
         nsenter -t "$pid" -n tc qdisc add dev "$iface" ingress 2>/dev/null || true
         nsenter -t "$pid" -n tc filter add dev "$iface" ingress protocol ip prio "$filter_prio" u32 \
@@ -264,7 +306,7 @@
           action mirred egress redirect dev "$ifb"
 
         printf '%s|%s|%s|%s|%s|%s\n' "$ns" "$pod" "$container" "$pid" "$iface" "$ifb" >> "$state_file"
-        echo "Ingress IFB netem configured for $target_role $ns/$pod container=$container pid=$pid iface=$iface ifb=$ifb delay=${delay_ms}ms"
+        echo "Ingress IFB netem configured for $target_role $ns/$pod container=$container pid=$pid iface=$iface ifb=$ifb args=$netem_args rate=${rate_mbit}mbit"
         nsenter -t "$pid" -n tc qdisc show dev "$iface" || true
         nsenter -t "$pid" -n tc filter show dev "$iface" ingress || true
         nsenter -t "$pid" -n tc qdisc show dev "$ifb" || true
@@ -277,12 +319,113 @@
         - validation_step_netem_method == 'pod_ifb_redirect'
       changed_when: true
 
+    - name: Apply selected pod egress netem delay
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ns="{{ validation_step_netem_target_ns }}"
+        pod="{{ validation_step_netem_target_pod }}"
+        container="{{ validation_step_netem_target_container }}"
+        cid="{{ validation_step_netem_target_container_id }}"
+        iface_pref="{{ validation_step_netem_pod_iface }}"
+        delay_ms="{{ paper_step.netem_delay_ms | default('') }}"
+        jitter_ms="{{ paper_step.netem_jitter_ms | default('') }}"
+        jitter_corr_pct="{{ validation_step_netem_jitter_corr_pct | default('') }}"
+        loss_pct="{{ paper_step.netem_loss_pct | default('') }}"
+        rate_mbit="{{ paper_step.netem_rate_mbit | default('') }}"
+        target_role="{{ validation_step_netem_target_role }}"
+        state_dir="/tmp/{{ paper_run_id }}/netem-egress"
+        state_file="$state_dir/{{ validation_step_netem_label_safe }}.targets"
+
+        mkdir -p "$state_dir"
+        : > "$state_file"
+
+        pid=""
+        if [ -n "$cid" ] && command -v crictl >/dev/null 2>&1; then
+          pid=$(crictl inspect "$cid" 2>/dev/null | sed -n 's/.*"pid":[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+        fi
+        if [ -z "$pid" ] && [ -n "$cid" ] && [ -r "/run/containerd/io.containerd.runtime.v2.task/k8s.io/$cid/init.pid" ]; then
+          pid=$(cat "/run/containerd/io.containerd.runtime.v2.task/k8s.io/$cid/init.pid")
+        fi
+        if [ -z "$pid" ] && [ -n "$cid" ] && command -v ctr >/dev/null 2>&1; then
+          pid=$(ctr -n k8s.io tasks list 2>/dev/null | awk -v id="$cid" '$1 == id || index(id, $1) == 1 || index($1, id) == 1 {print $2; exit}')
+        fi
+        if [ -z "$pid" ]; then
+          echo "Could not resolve host PID for $ns/$pod container $container" >&2
+          exit 6
+        fi
+
+        iface=""
+        for candidate in "$iface_pref" n3 n2 net1 eth0; do
+          if [ -n "$candidate" ] && nsenter -t "$pid" -n ip link show "$candidate" >/dev/null 2>&1; then
+            iface="$candidate"
+            break
+          fi
+        done
+        if [ -z "$iface" ]; then
+          iface=$(nsenter -t "$pid" -n ip -o link show | awk -F': ' '$2 !~ /^(lo|ifb)/ {sub(/@.*/, "", $2); print $2; exit}')
+        fi
+        if [ -z "$iface" ]; then
+          echo "Could not find pod interface for $ns/$pod" >&2
+          exit 7
+        fi
+
+        nsenter -t "$pid" -n tc qdisc del dev "$iface" root 2>/dev/null || true
+
+        netem_args=""
+        if [ -n "$delay_ms" ]; then
+          if [ -n "$jitter_ms" ]; then
+            jitter_corr_pct=$(printf '%s' "$jitter_corr_pct" | sed 's/%$//')
+            if [ -n "$jitter_corr_pct" ]; then
+              netem_args="$netem_args delay ${delay_ms}ms ${jitter_ms}ms ${jitter_corr_pct}% distribution normal"
+            else
+              netem_args="$netem_args delay ${delay_ms}ms ${jitter_ms}ms distribution normal"
+            fi
+          else
+            netem_args="$netem_args delay ${delay_ms}ms"
+          fi
+        elif [ -n "$jitter_ms" ]; then
+          echo "netem_jitter_ms requires netem_delay_ms" >&2
+          exit 8
+        fi
+        if [ -n "$loss_pct" ]; then
+          netem_args="$netem_args loss ${loss_pct}%"
+        fi
+
+        if [ -n "$rate_mbit" ] && [ -z "$netem_args" ]; then
+          nsenter -t "$pid" -n tc qdisc add dev "$iface" root tbf rate "${rate_mbit}mbit" burst 128kbit latency 400ms
+        elif [ -n "$rate_mbit" ] && [ -n "$netem_args" ]; then
+          nsenter -t "$pid" -n tc qdisc add dev "$iface" root handle 1: tbf rate "${rate_mbit}mbit" burst 128kbit latency 400ms
+          nsenter -t "$pid" -n tc qdisc add dev "$iface" parent 1:1 handle 10: netem $netem_args
+        elif [ -n "$netem_args" ]; then
+          nsenter -t "$pid" -n tc qdisc add dev "$iface" root netem $netem_args
+        else
+          echo "No netem delay, loss, or rate configured" >&2
+          exit 8
+        fi
+
+        printf '%s|%s|%s|%s|%s\n' "$ns" "$pod" "$container" "$pid" "$iface" >> "$state_file"
+        echo "Egress netem configured for $target_role $ns/$pod container=$container pid=$pid iface=$iface args=$netem_args rate=${rate_mbit}mbit"
+        nsenter -t "$pid" -n tc qdisc show dev "$iface" || true
+        nsenter -t "$pid" -n tc -s qdisc show dev "$iface" || true
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ validation_step_netem_target_node | default(validation_step_netem_host) }}"
+      become: true
+      when:
+        - validation_step_netem_enabled | bool
+        - validation_step_netem_method == 'pod_egress_netem'
+      changed_when: true
+
     - name: Apply target-server IFB netem delay
       ansible.builtin.shell: |
         set -e
         iface="{{ validation_step_netem_iface }}"
         ifb="{{ validation_step_netem_ifb }}"
-        delay_ms="{{ paper_step.netem_delay_ms }}"
+        delay_ms="{{ paper_step.netem_delay_ms | default('') }}"
+        jitter_ms="{{ paper_step.netem_jitter_ms | default('') }}"
+        jitter_corr_pct="{{ validation_step_netem_jitter_corr_pct | default('') }}"
+        loss_pct="{{ paper_step.netem_loss_pct | default('') }}"
+        rate_mbit="{{ paper_step.netem_rate_mbit | default('') }}"
         peer_ips="{{ validation_step_netem_peer_ips | join(' ') }}"
 
         if [ -z "$iface" ]; then
@@ -301,7 +444,36 @@
         ip link set dev "$ifb" up
 
         tc qdisc del dev "$ifb" root 2>/dev/null || true
-        tc qdisc replace dev "$ifb" root netem delay "${delay_ms}ms"
+        netem_args=""
+        if [ -n "$delay_ms" ]; then
+          if [ -n "$jitter_ms" ]; then
+            jitter_corr_pct=$(printf '%s' "$jitter_corr_pct" | sed 's/%$//')
+            if [ -n "$jitter_corr_pct" ]; then
+              netem_args="$netem_args delay ${delay_ms}ms ${jitter_ms}ms ${jitter_corr_pct}% distribution normal"
+            else
+              netem_args="$netem_args delay ${delay_ms}ms ${jitter_ms}ms distribution normal"
+            fi
+          else
+            netem_args="$netem_args delay ${delay_ms}ms"
+          fi
+        elif [ -n "$jitter_ms" ]; then
+          echo "netem_jitter_ms requires netem_delay_ms" >&2
+          exit 8
+        fi
+        if [ -n "$loss_pct" ]; then
+          netem_args="$netem_args loss ${loss_pct}%"
+        fi
+        if [ -n "$rate_mbit" ] && [ -z "$netem_args" ]; then
+          tc qdisc replace dev "$ifb" root tbf rate "${rate_mbit}mbit" burst 128kbit latency 400ms
+        elif [ -n "$rate_mbit" ] && [ -n "$netem_args" ]; then
+          tc qdisc add dev "$ifb" root handle 1: tbf rate "${rate_mbit}mbit" burst 128kbit latency 400ms
+          tc qdisc add dev "$ifb" parent 1:1 handle 10: netem $netem_args
+        elif [ -n "$netem_args" ]; then
+          tc qdisc replace dev "$ifb" root netem $netem_args
+        else
+          echo "No netem delay, loss, or rate configured" >&2
+          exit 8
+        fi
 
         tc qdisc del dev "$iface" clsact 2>/dev/null || true
         tc qdisc add dev "$iface" clsact
@@ -317,7 +489,7 @@
           prio=$((prio + 1))
         done
 
-        echo "IFB netem configured on $ifb for UE IPs: $peer_ips"
+        echo "IFB netem configured on $ifb for UE IPs: $peer_ips args=$netem_args rate=${rate_mbit}mbit"
         tc qdisc show dev "$iface" || true
         tc filter show dev "$iface" ingress || true
         tc filter show dev "$iface" egress || true
@@ -382,6 +554,33 @@
       changed_when: false
       failed_when: false
 
+    - name: Clear selected pod egress netem delay
+      ansible.builtin.shell: |
+        set -u
+        state_file="/tmp/{{ paper_run_id }}/netem-egress/{{ validation_step_netem_label_safe }}.targets"
+        if [ ! -f "$state_file" ]; then
+          exit 0
+        fi
+        while IFS='|' read -r ns pod container pid iface; do
+          [ -z "$pid" ] && continue
+          if ! kill -0 "$pid" 2>/dev/null; then
+            continue
+          fi
+          if [ -n "$iface" ]; then
+            nsenter -t "$pid" -n tc qdisc del dev "$iface" root 2>/dev/null || true
+          fi
+        done < "$state_file"
+        rm -f "$state_file"
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ validation_step_netem_target_node | default(validation_step_netem_host) }}"
+      become: true
+      when:
+        - validation_step_netem_enabled | bool
+        - validation_step_netem_method == 'pod_egress_netem'
+      changed_when: false
+      failed_when: false
+
     - name: Clear target-server IFB netem delay
       ansible.builtin.shell: |
         iface="{{ validation_step_netem_iface }}"
@@ -428,6 +627,10 @@
       pcap_capture_seconds: "{{ paper_step.pcap_capture_seconds | default(validation_pcap_capture_seconds | default(15)) | int }}"
       netem_enabled: "{{ validation_step_netem_enabled }}"
       netem_delay_ms: "{{ paper_step.netem_delay_ms | default('') }}"
+      netem_jitter_ms: "{{ paper_step.netem_jitter_ms | default('') }}"
+      netem_jitter_corr_pct: "{{ validation_step_netem_jitter_corr_pct }}"
+      netem_loss_pct: "{{ paper_step.netem_loss_pct | default('') }}"
+      netem_rate_mbit: "{{ paper_step.netem_rate_mbit | default('') }}"
       netem_method: "{{ validation_step_netem_method }}"
       netem_ifb: "{{ validation_step_netem_ifb }}"
       netem_target_role: "{{ validation_step_netem_target_role }}"

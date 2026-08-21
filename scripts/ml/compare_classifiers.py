@@ -17,6 +17,8 @@ Usage:
 """
 import argparse
 import csv
+import os
+import warnings
 from collections import defaultdict
 
 import numpy as np
@@ -24,6 +26,13 @@ from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from sklearn.impute import SimpleImputer
 from xgboost import XGBClassifier
+
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*Parameters: \{ \"use_label_encoder\" \} are not used.*",
+    category=UserWarning,
+)
 
 META_COLS = 6
 METADATA_PREFIXES = ("scenario_is_", "window_is_", "phase_is_",
@@ -40,6 +49,9 @@ EBPF_PREFIXES = (
     "tcp_evict",         # gtp_tcp_pending_evicted_* (+ augmented ratio)
     "tcp_no_match",      # gtp_tcp_ack_no_match_* (+ augmented ratio)
 )
+
+
+ML_N_JOBS = int(os.environ.get("ML_N_JOBS", "1"))
 
 
 def is_ebpf_feature(name):
@@ -102,7 +114,7 @@ def feature_importance_global(X, y, feature_names, clf):
 
 def make_rf():
     return RandomForestClassifier(
-        n_estimators=300, random_state=42, n_jobs=-1, class_weight="balanced"
+        n_estimators=300, random_state=42, n_jobs=ML_N_JOBS, class_weight="balanced"
     )
 
 
@@ -113,10 +125,9 @@ def make_xgb(n_classes, label_encoder):
         max_depth=6,
         subsample=0.8,
         colsample_bytree=0.8,
-        use_label_encoder=False,
         eval_metric="mlogloss",
         random_state=42,
-        n_jobs=-1,
+        n_jobs=ML_N_JOBS,
         # XGBoost doesn't support class_weight directly; we handle via sample_weight
     )
 
@@ -165,13 +176,13 @@ def leave_one_run_out(X, y, runs, clf_factory, label_encoder=None):
 
 def make_ensemble(labels_sorted):
     rf = RandomForestClassifier(
-        n_estimators=300, random_state=42, n_jobs=-1
+        n_estimators=300, random_state=42, n_jobs=ML_N_JOBS
     )
     xgb = XGBClassifier(
         n_estimators=300, learning_rate=0.1, max_depth=6,
         subsample=0.8, colsample_bytree=0.8,
-        use_label_encoder=False, eval_metric="mlogloss",
-        random_state=42, n_jobs=-1,
+        eval_metric="mlogloss",
+        random_state=42, n_jobs=ML_N_JOBS,
         num_class=len(labels_sorted)
     )
     return VotingClassifier(
@@ -196,6 +207,126 @@ def print_results(tag, y_true, y_pred, verbose=True):
         for i, rl in enumerate(labels):
             print(f"  {rl:>22}", "  ".join(f"{cm[i,j]:>6}" for j in range(len(labels))))
     return acc, macro_f1
+
+
+RUN_COMMANDS = {
+    "controlled_delay": (
+        "ansible-playbook -i ./inventory/default/hosts.ini playbooks/run_latency_validation.yml "
+        "-e validation_scenario_names=28_controlled_delay_levels "
+        "-e core=open5gs -e ebpf_probe_preflight_enabled=false"
+    ),
+    "upf_stress": (
+        "ansible-playbook -i ./inventory/default/hosts.ini playbooks/run_tcp_paper_scenarios.yml "
+        "-e paper_scenario_names=24_upf_stress_levels "
+        "-e core=open5gs -e ebpf_probe_preflight_enabled=false"
+    ),
+    "radio_interference": (
+        "ansible-playbook -i ./inventory/default/hosts.ini playbooks/run_tcp_paper_scenarios.yml "
+        "-e paper_scenario_names=26_interference_gain_levels "
+        "-e core=open5gs -e ebpf_probe_preflight_enabled=false"
+    ),
+    "server_stress": (
+        "ansible-playbook -i ./inventory/default/hosts.ini playbooks/run_tcp_paper_scenarios.yml "
+        "-e paper_scenario_names=25_server_stress_levels "
+        "-e core=open5gs -e ebpf_probe_preflight_enabled=false"
+    ),
+    "tunnel_packet_loss": (
+        "ansible-playbook -i ./inventory/default/hosts.ini playbooks/run_latency_validation.yml "
+        "-e validation_scenario_names=30_packet_loss_levels "
+        "-e core=open5gs -e ebpf_probe_preflight_enabled=false"
+    ),
+    "clean_traffic": (
+        "ansible-playbook -i ./inventory/default/hosts.ini playbooks/run_latency_validation.yml "
+        "-e validation_scenario_names=33_streaming_baseline "
+        "-e core=open5gs -e ebpf_probe_preflight_enabled=false"
+    ),
+}
+
+
+def print_reinforcement_plan(y_true, y_pred, target_support=30):
+    labels = sorted(set(y_true))
+    report = classification_report(
+        y_true,
+        y_pred,
+        labels=labels,
+        output_dict=True,
+        zero_division=0,
+    )
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+
+    rows = []
+    for i, label in enumerate(labels):
+        support = int(report[label]["support"])
+        recall = float(report[label]["recall"])
+        f1 = float(report[label]["f1-score"])
+
+        off_diag = [(labels[j], int(cm[i, j])) for j in range(len(labels)) if j != i and cm[i, j] > 0]
+        off_diag.sort(key=lambda item: item[1], reverse=True)
+        main_confusion = off_diag[0] if off_diag else ("-", 0)
+
+        missing = max(target_support - support, 0)
+        priority = 0
+        if missing:
+            priority += missing / max(target_support, 1)
+        if recall < 0.75:
+            priority += (0.75 - recall) * 2
+        if f1 < 0.80:
+            priority += (0.80 - f1) * 2
+        if main_confusion[1] >= 3:
+            priority += min(main_confusion[1] / max(support, 1), 1.0)
+
+        rows.append({
+            "label": label,
+            "support": support,
+            "missing": missing,
+            "recall": recall,
+            "f1": f1,
+            "confused_with": main_confusion[0],
+            "confused_n": main_confusion[1],
+            "priority": priority,
+        })
+
+    rows.sort(key=lambda r: (-r["priority"], r["support"], r["f1"]))
+
+    print(f"\n{'='*65}")
+    print("  CLASSES TO REINFORCE")
+    print(f"{'='*65}")
+    print(f"  Target support per class: {target_support}")
+    print(f"  {'Class':<22} {'n':>4} {'need':>5} {'recall':>7} {'F1':>7} {'main confusion':<26}")
+    print(f"  {'-'*82}")
+    for row in rows:
+        if row["priority"] <= 0:
+            continue
+        confusion = (
+            f"{row['confused_with']} ({row['confused_n']})"
+            if row["confused_n"]
+            else "-"
+        )
+        print(
+            f"  {row['label']:<22} {row['support']:>4} {row['missing']:>5} "
+            f"{row['recall']:>7.2f} {row['f1']:>7.2f} {confusion:<26}"
+        )
+
+    print(f"\n{'='*65}")
+    print("  NEXT RUNS")
+    print(f"{'='*65}")
+    for row in rows:
+        if row["priority"] <= 0:
+            continue
+        cmd = RUN_COMMANDS.get(row["label"])
+        if not cmd:
+            continue
+        reasons = []
+        if row["missing"]:
+            reasons.append(f"need {row['missing']} more windows")
+        if row["recall"] < 0.75:
+            reasons.append(f"low recall {row['recall']:.2f}")
+        if row["f1"] < 0.80:
+            reasons.append(f"low F1 {row['f1']:.2f}")
+        if row["confused_n"]:
+            reasons.append(f"confused with {row['confused_with']} ({row['confused_n']})")
+        print(f"\n# {row['label']}: {', '.join(reasons)}")
+        print(cmd)
 
 
 def analyze_errors(X_top, y, runs, feature_names, top_names):
@@ -266,6 +397,10 @@ def main():
     ap.add_argument("--standard-only", action="store_true",
                     help="Use only STANDARD features (no eBPF probe required). "
                          "Shows classifier performance without the ebpf-latency-probe.")
+    ap.add_argument("--target-support", type=int, default=30,
+                    help="Minimum desired windows per class for the reinforcement plan.")
+    ap.add_argument("--no-recommend", action="store_true",
+                    help="Do not print the automatic class reinforcement plan.")
     args = ap.parse_args()
 
     exclude = {c.strip() for c in args.exclude_classes.split(",") if c.strip()}
@@ -328,6 +463,7 @@ def main():
     ranked = feature_importance_global(X_clean, y, fnames_clean, make_rf())
 
     results = []
+    best_predictions = None
 
     for top_n in [40, 60]:
         top_names_ranked = [name for name, _ in ranked[:top_n]]
@@ -347,31 +483,31 @@ def main():
         y_true, y_pred = leave_one_run_out(X_top, y_top, runs_top, make_rf)
         acc, mf1 = print_results(f"RF    top-{top_n}", y_true, y_pred,
                                   verbose=(top_n == 40))
-        results.append((f"RF    top-{top_n}", acc, mf1))
+        results.append((f"RF    top-{top_n}", acc, mf1, y_true, y_pred))
 
         # 2. XGBoost
         def xgb_factory():
             return XGBClassifier(
                 n_estimators=300, learning_rate=0.1, max_depth=6,
                 subsample=0.8, colsample_bytree=0.8,
-                use_label_encoder=False, eval_metric="mlogloss",
-                random_state=42, n_jobs=-1,
+                eval_metric="mlogloss",
+                random_state=42, n_jobs=ML_N_JOBS,
             )
         y_true, y_pred = leave_one_run_out(X_top, y_top, runs_top, xgb_factory)
         acc, mf1 = print_results(f"XGB   top-{top_n}", y_true, y_pred,
                                   verbose=(top_n == 40))
-        results.append((f"XGB   top-{top_n}", acc, mf1))
+        results.append((f"XGB   top-{top_n}", acc, mf1, y_true, y_pred))
 
         # 3. Ensemble RF+XGB
         def ens_factory():
             rf = RandomForestClassifier(
-                n_estimators=300, random_state=42, n_jobs=-1
+                n_estimators=300, random_state=42, n_jobs=ML_N_JOBS
             )
             xgb = XGBClassifier(
                 n_estimators=300, learning_rate=0.1, max_depth=6,
                 subsample=0.8, colsample_bytree=0.8,
-                use_label_encoder=False, eval_metric="mlogloss",
-                random_state=42, n_jobs=-1,
+                eval_metric="mlogloss",
+                random_state=42, n_jobs=ML_N_JOBS,
             )
             return VotingClassifier(
                 estimators=[("rf", rf), ("xgb", xgb)], voting="soft"
@@ -379,7 +515,7 @@ def main():
         y_true_e, y_pred_e = leave_one_run_out(X_top, y_top, runs_top, ens_factory)
         acc, mf1 = print_results(f"ENS   top-{top_n}", y_true_e, y_pred_e,
                                   verbose=(top_n == 40))
-        results.append((f"ENS   top-{top_n}", acc, mf1))
+        results.append((f"ENS   top-{top_n}", acc, mf1, y_true_e, y_pred_e))
 
         if args.analyze_errors and top_n == 40:
             analyze_errors(X_top, y_top, runs_top, fnames_clean, top_names_ranked)
@@ -390,9 +526,19 @@ def main():
     print(f"{'='*65}")
     print(f"  {'Config':<20} {'Accuracy':>10} {'Macro-F1':>10}")
     print(f"  {'-'*42}")
-    for tag, acc, mf1 in sorted(results, key=lambda x: -x[1]):
-        marker = " <-- best" if acc == max(r[1] for r in results) else ""
+    best_acc = max(r[1] for r in results)
+    for tag, acc, mf1, y_true, y_pred in sorted(results, key=lambda x: (-x[1], -x[2])):
+        marker = " <-- best" if acc == best_acc else ""
         print(f"  {tag:<20} {acc:>10.3f} {mf1:>10.3f}{marker}")
+        if best_predictions is None and acc == best_acc:
+            best_predictions = (y_true, y_pred)
+
+    if best_predictions and not args.no_recommend:
+        print_reinforcement_plan(
+            best_predictions[0],
+            best_predictions[1],
+            target_support=args.target_support,
+        )
 
 
 if __name__ == "__main__":

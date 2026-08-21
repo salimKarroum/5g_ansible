@@ -1,0 +1,8 @@
+label,windows_before,windows_after,runs_before,runs_after,removed_runs
+controlled_delay,77,48,6,6,
+controlled_jitter,72,48,4,4,
+far_ue_poor_radio,240,48,4,4,
+radio_interference,48,48,6,6,
+tunnel_bandwidth_limit,138,48,5,5,
+tunnel_packet_loss,55,48,5,5,
+upf_stress,48,48,3,3,
